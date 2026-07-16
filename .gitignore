@@ -1,0 +1,18 @@
+# Local tooling / editor
+.claude/
+.vscode/
+.idea/
+.DS_Store
+
+# Secrets — never commit
+*.key
+*.csr
+*.pem
+.env
+.env.*
+
+# Build artifacts
+*.tar.gz
+node_modules/
+vendor/
+.pytest_cache/

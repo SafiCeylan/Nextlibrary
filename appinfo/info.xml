@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+    <id>nextlibrary</id>
+    <name>Knowledge Cards</name>
+    <name lang="tr">Bilgi Kartları</name>
+    <summary>Knowledge collections with reading progress</summary>
+    <summary lang="tr">Okuma takipli bilgi koleksiyonları</summary>
+    <description><![CDATA[
+Knowledge Cards turns your Nextcloud into a small learning library.
+
+Group pages into **collections**, write them with a rich text editor, and let your
+team read through them at their own pace. Every page remembers who has read it and
+when, so progress is visible at a glance.
+
+- **Collections and pages** — a browsable tree on the left, a reading canvas in the middle, related pages on the right.
+- **Reading progress** — mark pages as read; progress bars and badges show what is left.
+- **Rich editor** — headings, lists, quotes, code blocks, colours, highlights, callouts, images and video embeds.
+- **Roles** — owners and editors write, readers only read. Collections can be public to the instance or private to their members.
+- **Trash bin** — deleted collections and pages can be restored.
+- **Dark mode** and full-text search across pages.
+    ]]></description>
+    <description lang="tr"><![CDATA[
+Bilgi Kartları, Nextcloud'unuzu küçük bir öğrenme kütüphanesine dönüştürür.
+
+Sayfaları **koleksiyonlar** halinde gruplayın, zengin metin düzenleyiciyle yazın ve
+ekibiniz kendi hızında okusun. Her sayfa kimin ne zaman okuduğunu hatırlar; ilerleme
+tek bakışta görünür.
+
+- **Koleksiyonlar ve sayfalar** — solda gezilebilir ağaç, ortada okuma kanvası, sağda ilgili sayfalar.
+- **Okuma takibi** — sayfaları okundu işaretleyin; ilerleme çubukları ve rozetler kalanı gösterir.
+- **Zengin düzenleyici** — başlıklar, listeler, alıntılar, kod blokları, renkler, vurgular, bilgi notları, görseller ve video gömme.
+- **Roller** — sahip ve editörler yazar, okuyucular yalnızca okur. Koleksiyonlar sunucuya açık ya da üyelerine özel olabilir.
+- **Çöp kutusu** — silinen koleksiyon ve sayfalar geri yüklenebilir.
+- **Karanlık mod** ve sayfalarda tam metin arama.
+    ]]></description>
+    <version>1.0.0</version>
+    <licence>agpl</licence>
+    <author mail="memoceylan712@gmail.com">Mehmet Safi Ceylan</author>
+    <namespace>NextLibrary</namespace>
+    <category>organization</category>
+    <category>office</category>
+    <bugs>https://github.com/SafiCeylan/agents/issues</bugs>
+    <dependencies>
+        <php min-version="8.0" max-version="8.3"/>
+        <nextcloud min-version="28" max-version="31"/>
+    </dependencies>
+    <navigations>
+        <navigation>
+            <!-- Translated via l10n/*, not a lang attribute: the XSD rejects lang here. -->
+            <name>Knowledge Cards</name>
+            <route>nextlibrary.page.index</route>
+            <icon>app.svg</icon>
+            <order>75</order>
+        </navigation>
+    </navigations>
+</info>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NextLibrary — dev (embedded NC simulation)</title>
+<script>document.write('<link rel="stylesheet" href="css/style.css?_='+Date.now()+'" />');</script>
+<style>
+  body{margin:0;font-family:"Segoe UI",sans-serif}
+  /* Nextcloud üst barı simülasyonu (dev'de) */
+  .fake-nc{height:50px;background:#0f2d4e;display:flex;align-items:center;gap:4px;padding:0 10px;color:#fff}
+  .fake-nc .ic{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;font-size:15px;cursor:pointer}
+  .fake-nc .ic:hover{background:rgba(255,255,255,.24)}
+  .fake-nc .sp{flex:1}
+  .fake-nc .logo{font-weight:700;margin:0 8px 0 4px}
+  #content{height:calc(100vh - 50px);display:flex;position:relative}
+</style>
+</head>
+<body>
+  <div class="fake-nc">
+    <div class="ic">◎</div><span class="logo">Nextcloud</span>
+    <div class="ic">☁️</div><div class="ic">🗀</div><div class="ic">🖼</div><div class="ic">⚡</div><div class="ic">📑</div><div class="ic">📅</div>
+    <div class="sp"></div>
+    <div class="ic">🔍</div><div class="ic">🔔</div><div class="ic">S</div>
+  </div>
+  <div id="content">
+    <div id="kesif-app" data-theme="light">
+      <div class="kx-bar">
+        <button class="kx-menu" id="menuBtn" title="Menu">☰</button>
+        <button class="kx-btn kx-back" id="backBtn" title="Back" style="display: none;">← Back</button>
+        <div class="kx-title"><span class="logo">📚</span> Knowledge Cards</div>
+        <div class="kx-spacer"></div>
+        <div class="top-search">
+          <span class="si">🔍</span>
+          <input id="kx-search" placeholder="Search pages …" autocomplete="off" />
+          <div class="results" id="results"></div>
+        </div>
+        <button class="kx-btn" id="roleBtn" title="Editor ↔ visitor">✏️ Editor</button>
+        <button class="kx-switch" id="themeBtn" role="switch" aria-checked="false" title="Light / dark theme">
+          <span class="kx-switch-ico kx-switch-sun">☀️</span>
+          <span class="kx-switch-ico kx-switch-moon">🌙</span>
+          <span class="kx-switch-thumb"></span>
+        </button>
+      </div>
+      <div class="layout">
+        <div class="nav-ovl" id="navOvl"></div>
+        <aside class="sidebar">
+          <div class="sb-head"><h2>Collections</h2></div>
+          <div class="tree" id="tree"></div>
+          <button class="sb-new" id="newCollBtn">＋ New collection</button>
+          <button class="sb-trash-btn" id="trashBtn">🗑️ Trash bin</button>
+        </aside>
+        <main class="stage" id="stage"><div id="viewer"></div></main>
+        <aside class="rail">
+          <h3>Related pages</h3>
+          <p class="sub">Other pages in the same collection.</p>
+          <div id="recs"></div>
+        </aside>
+      </div>
+      <div class="emoji-pop" id="emojiPop"></div>
+      <div class="kx-pop" id="kxPop"></div>
+      <div class="ctx-menu" id="ctxMenu"></div>
+      <div class="backdrop" id="mdNew">
+        <div class="modal">
+          <div class="m-head"><h3>New collection</h3><button class="m-close" data-close="mdNew">✕</button></div>
+          <div class="m-body">
+            <div class="field"><label>Collection name</label><button class="ep" id="newEmoji">📘</button><input id="newName" placeholder="Enter a collection name …" /></div>
+            <div class="mvis" id="nVis" style="margin-top: 16px;">
+              <span class="mvis-label">Visibility</span>
+              <div class="mvis-opts">
+                <button type="button" class="mvis-btn" data-vis="public">🌐 Public</button>
+                <button type="button" class="mvis-btn" data-vis="private">🔒 Private</button>
+              </div>
+            </div>
+            <div class="mvis-hint" id="nVisHint"></div>
+            <div class="msec" style="margin-top: 18px; margin-bottom: 6px;">Page list</div>
+            <div id="newPagesContainer"></div>
+            <button class="btn btn-ghost" id="addPageFieldBtn" type="button" style="margin-top: 10px; width: 100%; justify-content: center; border: 1px dashed var(--line); border-radius: 10px;">＋ Add a page</button>
+          </div>
+          <div class="m-foot"><button class="btn btn-ghost" data-close="mdNew">Cancel</button><button class="btn btn-primary" id="toMembers">Add members</button></div>
+        </div>
+      </div>
+      <div class="backdrop" id="mdMembers">
+        <div class="modal">
+          <div class="m-head"><h3 id="mdMembersTitle">Add members</h3><button class="m-close" data-close="mdMembers">✕</button></div>
+          <div class="m-body">
+            <div class="mvis" id="mVis">
+              <span class="mvis-label">Visibility</span>
+              <div class="mvis-opts">
+                <button type="button" class="mvis-btn" data-vis="public">🌐 Public</button>
+                <button type="button" class="mvis-btn" data-vis="private">🔒 Private</button>
+              </div>
+            </div>
+            <div class="mvis-hint" id="mVisHint"></div>
+            <div class="msearch">🔍 <input id="mSearch" placeholder="Search accounts, groups, teams" autocomplete="off" /></div>
+            <div class="mchips" id="mChips"></div>
+            <div class="msec">Add account</div><div id="mAccounts"></div>
+            <div class="msec">Add group</div><div id="mGroups"></div>
+          </div>
+          <div class="m-foot"><button class="btn btn-ghost" id="membersBack">Back</button><button class="btn btn-primary" id="createColl">Create without members</button></div>
+        </div>
+      </div>
+      <div class="toast" id="toast"></div>
+    </div>
+  </div>
+  <script>document.write('<scr'+'ipt src="js/app.js?_='+Date.now()+'"></scr'+'ipt>');</script>
+</body>
+</html>
