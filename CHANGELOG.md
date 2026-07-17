@@ -4,6 +4,13 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-07-17
+
+### Changed
+- Contact address updated to saficeylan89@gmail.com.
+- Bug report link now points at this app's own repository instead of the old
+  development repository.
+
 ## [1.0.2] - 2026-07-17
 
 ### Fixed
