@@ -136,8 +136,11 @@ function applyState(st){
   colls=((st&&st.collections)||[]).map(mapColl);
   reads={}; const rs=(st&&st.reads)||{}; Object.keys(rs).forEach(k=>{reads[String(k)]=rs[k];});
 }
+// Dönüş: bu delta gerçekten bir şey değiştirdi mi. Arka plan poll'u buna bakıp
+// gereksiz re-render'dan kaçınır (bkz. syncTick).
 function applySyncState(st) {
-  if (!st) return;
+  if (!st) return false;
+  let changed = false;
   if (st.me && st.me.id) { me = { id: st.me.id, name: st.me.name || st.me.id }; }
 
   if (st.deleted) {
@@ -146,6 +149,7 @@ function applySyncState(st) {
     if (delColls.size > 0) {
       colls = colls.filter(c => !delColls.has(c.id));
       if (curColl && delColls.has(curColl)) { curColl = null; curPage = null; }
+      changed = true;
     }
     if (delPages.size > 0) {
       colls.forEach(c => {
@@ -153,10 +157,12 @@ function applySyncState(st) {
       });
       if (curPage && delPages.has(curPage)) { curPage = null; }
       delPages.forEach(pid => { delete reads[pid]; });
+      changed = true;
     }
   }
 
   if (st.collections && st.collections.length > 0) {
+    changed = true;
     st.collections.forEach(sc => {
       const mc = mapColl(sc);
       const idx = colls.findIndex(c => c.id === mc.id);
@@ -181,14 +187,21 @@ function applySyncState(st) {
     });
   }
 
-  if (st.reads) {
+  // Sunucu since>0'da yalnızca since'den YENİ okundu kayıtlarını yollar → dolu gelmesi
+  // gerçek bir değişiklik demek (örn. kullanıcının başka cihazı sayfayı okundu işaretledi).
+  if (st.reads && Object.keys(st.reads).length > 0) {
     Object.keys(st.reads).forEach(k => {
       reads[String(k)] = st.reads[k];
     });
+    changed = true;
   }
+  return changed;
 }
 let lastSyncAt = LS.get('lastSyncAt', 0);
-async function loadState(forceFull = false){
+// quiet: arka plan poll'u için. Hatayı kullanıcıya toast'lamaz (20sn'de bir uyarı spam'i olurdu)
+// ve başarısızlıkta ekranı boşaltmaz — eldeki veri, bayat da olsa, boş ekrandan iyidir.
+// Dönüş: {ok, changed} — changed yalnızca delta gerçekten bir şey getirdiyse true.
+async function loadState(forceFull = false, quiet = false){
   let st;
   // colls boşken delta çekilirse (örn. sayfa yenileme) sunucu yalnızca "since'den beri değişenleri"
   // döndürür ve ekran boş kalır — veriler silinmiş gibi görünür. Elde temel yokken daima tam yükle.
@@ -196,22 +209,26 @@ async function loadState(forceFull = false){
   const reqTime = Date.now();
   try{ st=await api('GET','/state' + (since > 0 ? '?since=' + since : '')); }
   catch(e){
+    if (quiet) { try{ console.error('[NextLibrary sync]', e); }catch(_){} return {ok:false, changed:false}; }
     apiErr(e);
     if (since === 0) applyState({collections:[],reads:{}});
-    return;
+    return {ok:false, changed:false};
   }
   // First run on an empty instance: plant the getting-started collection.
   if(since === 0 && (!st.collections||!st.collections.length) && !LS.get('seeded', false)){
     try{ st=await api('POST','/import',{collections:seed()}); }catch(e){ apiErr(e); }
     LS.set('seeded',true);
   }
+  let changed;
   if (since === 0) {
     applyState(st);
+    changed = true;
   } else {
-    applySyncState(st);
+    changed = applySyncState(st);
   }
   lastSyncAt = st.syncAt || reqTime;
   LS.set('lastSyncAt', lastSyncAt);
+  return {ok:true, changed};
 }
 let isConflictOpen = false;
 // Aynı sayfa için iki kayıt AYNI ANDA uçuşta olursa ikincisi bayatlamış lastUpdatedAt yollar
@@ -1356,6 +1373,42 @@ loadState(true).then(()=>{
   renderTree(); renderViewer(); renderRecs(); updateBackBtnVisibility();
 });
 setInterval(updateTreeTimes,60000); // "x dk önce" etiketlerini canlı tut
+
+/* -------- Delta senkronu: periyodik yoklama --------
+   Sunucudaki delta makinesi (touchCollection / deleted feed / syncAt) hazırdı ama onu çağıran
+   yoktu → başkasının değişikliği ancak sayfa elle yenilenince görünüyordu. Bağlayan yer burası. */
+const SYNC_MS = 20000;
+let syncing = false;
+
+// Yoklamanın zarar vereceği anlar. Hepsi ayrı bir sebeple burada:
+function syncPaused(){
+  // Düzenleme sırasında re-render contenteditable'ı baştan yazar → imleç ve yazılan metin gider.
+  if (editing) return true;
+  // Kayıt uçuşta ya da çakışma modalı açık → bayat veri çekip kullanıcıyı kendisiyle çakıştırma.
+  if (saveInFlight || savePendingPage || isConflictOpen) return true;
+  // Kullanıcı bir modalın ortasında (koleksiyon oluşturma, üye seçme…) → altını değiştirme.
+  if (ROOT.querySelector('.backdrop.show')) return true;
+  // Sekme arkada → boşuna istek. Geri dönünce visibilitychange zaten hemen tazeliyor.
+  if (document.hidden) return true;
+  return false;
+}
+
+async function syncTick(){
+  if (syncing || syncPaused()) return;
+  syncing = true;
+  try {
+    const r = await loadState(false, true);
+    // Değişiklik yokken render etme: #viewer baştan yazılırsa okuma pozisyonu başa sarar
+    // ve sayfa giriş animasyonu her turda yeniden oynar.
+    if (!r.ok || !r.changed) return;
+    if (curColl && !getColl(curColl)) { curColl = null; curPage = null; }
+    if (curPage && !findPage(curPage)) curPage = null;
+    renderTree(el('kx-search').value); renderViewer(); renderRecs(); updateBackBtnVisibility();
+  } finally { syncing = false; }
+}
+
+setInterval(syncTick, SYNC_MS);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) syncTick(); });
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();

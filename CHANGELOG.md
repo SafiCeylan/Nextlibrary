@@ -4,6 +4,19 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-07-17
+
+### Fixed
+- App icon is now drawn in white so it stays visible on the Nextcloud navigation bar
+  (bright background inverts dark icons, making a black icon disappear).
+- Background poll now applies incoming changes to the reading canvas even when the
+  update arrives as a delta, and re-renders are skipped when a poll carries no changes
+  (avoids resetting scroll position and replaying page-entry animations for no reason).
+
+### Added
+- Periodic background sync (every 20s, paused while editing, saving, or a modal is open)
+  so a collaborator's changes to a collection show up without a manual page reload.
+
 ## [1.0.0] - 2026-07-16
 
 First public release, prepared for the Nextcloud App Store.

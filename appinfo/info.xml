@@ -34,7 +34,7 @@ tek bakışta görünür.
 - **Çöp kutusu** — silinen koleksiyon ve sayfalar geri yüklenebilir.
 - **Karanlık mod** ve sayfalarda tam metin arama.
     ]]></description>
-    <version>1.0.0</version>
+    <version>1.0.2</version>
     <licence>agpl</licence>
     <author mail="memoceylan712@gmail.com">Mehmet Safi Ceylan</author>
     <namespace>NextLibrary</namespace>
