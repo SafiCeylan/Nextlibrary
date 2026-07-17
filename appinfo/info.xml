@@ -34,13 +34,17 @@ tek bakışta görünür.
 - **Çöp kutusu** — silinen koleksiyon ve sayfalar geri yüklenebilir.
 - **Karanlık mod** ve sayfalarda tam metin arama.
     ]]></description>
-    <version>1.0.3</version>
+    <version>1.0.4</version>
     <licence>agpl</licence>
     <author mail="saficeylan89@gmail.com">Mehmet Safi Ceylan</author>
     <namespace>NextLibrary</namespace>
     <category>organization</category>
     <category>office</category>
     <bugs>https://github.com/SafiCeylan/Nextlibrary/issues</bugs>
+    <repository>https://github.com/SafiCeylan/Nextlibrary</repository>
+    <screenshot>https://raw.githubusercontent.com/SafiCeylan/Nextlibrary/main/screenshots/1-collections.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/SafiCeylan/Nextlibrary/main/screenshots/2-reading.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/SafiCeylan/Nextlibrary/main/screenshots/3-new-collection.png</screenshot>
     <dependencies>
         <php min-version="8.0" max-version="8.3"/>
         <nextcloud min-version="28" max-version="31"/>

@@ -4,6 +4,12 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.4] - 2026-07-17
+
+### Added
+- Screenshots and a repository link in the app metadata, so the App Store listing
+  shows what the app looks like instead of a wall of text.
+
 ## [1.0.3] - 2026-07-17
 
 ### Changed
