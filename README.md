@@ -18,7 +18,8 @@ page remembers who has read it and when, so reading progress is visible at a gla
 
 ## Requirements
 
-- Nextcloud 28–31
+- Nextcloud 28–34
+
 - PHP 8.0–8.3
 
 ## Installation
