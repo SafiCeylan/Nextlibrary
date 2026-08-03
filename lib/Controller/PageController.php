@@ -5,6 +5,8 @@ namespace OCA\NextLibrary\Controller;
 
 use OCA\NextLibrary\AppInfo\Application;
 use OCP\AppFramework\Controller;
+use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\ContentSecurityPolicy;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IL10N;
@@ -23,10 +25,9 @@ class PageController extends Controller {
     /**
      * Rendered inside the Nextcloud frame (top bar and app menu are kept).
      * CSS/JS load through Nextcloud, so the script nonce is added automatically.
-     *
-     * @NoAdminRequired
-     * @NoCSRFRequired
      */
+    #[NoAdminRequired]
+    #[NoCSRFRequired]
     public function index(): TemplateResponse {
         Util::addStyle(Application::APP_ID, 'style');
         Util::addScript(Application::APP_ID, 'app');
@@ -35,6 +36,8 @@ class PageController extends Controller {
 
         // Kullanıcının eklediği medyaya izin: görsel (<img>, data:), video (<video>) ve
         // yalnızca güvenilir gömme kaynakları (YouTube / Vimeo <iframe>).
+        // NOT: script/style/connect/font için ayrıca 'self' EKLENMEZ — ContentSecurityPolicy
+        // zaten bu değerlerle gelir (font ayrıca 'data:'). Tekrar eklemek hiçbir şey değiştirmez.
         $csp = new ContentSecurityPolicy();
         $csp->addAllowedImageDomain('*');
         $csp->addAllowedMediaDomain('*');

@@ -55,7 +55,16 @@ function api(method,path,body){
       return r.json().catch(()=>null);
     });
 }
-function apiErr(e){ try{console.error('[NextLibrary API]',e);}catch(_){} toast(t('nextlibrary','Could not save to the server — check your connection')); }
+// Hatayı sebebine göre söyle: her şeye "bağlantını kontrol et" demek yetki/oturum
+// sorunlarını ağ sorunu gibi gösteriyordu (403 → aslında yetki yok).
+function apiErr(e){
+  try{console.error('[NextLibrary API]',e);}catch(_){}
+  const s=e&&e.status;
+  if(s===403)      toast(t('nextlibrary','You are not allowed to do this — only administrators can write here'));
+  else if(s===401) toast(t('nextlibrary','Your session has expired — reload the page and sign in again'));
+  else if(s===429) toast(t('nextlibrary','Too many requests — wait a moment and try again'));
+  else             toast(t('nextlibrary','Could not save to the server — check your connection'));
+}
 
 /* -------- Seed content for an empty instance -------- */
 function seed(){
@@ -81,6 +90,7 @@ let colls=[];   // sunucudan loadState() ile doldurulur
 let curColl=LS.get('curColl',null);
 let curPage=LS.get('curPage',null);
 let openColls=new Set(LS.get('openColls',[]));
+let openPages=new Set(LS.get('openPages',[]));   // ağaçta genişletilmiş kartlar (iç içe)
 let editing=false;
 
 /* Gerçek NC kullanıcı/grup meta bilgisi (principal id → {name,type}).
@@ -93,30 +103,95 @@ function pType(id){ return (PMETA[id]&&PMETA[id].type)||'user'; }
 function pColor(id){ let h=0; const s=String(id); for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0; const hue=h%360; return {c:`hsl(${hue} 60% 88%)`,t:`hsl(${hue} 55% 30%)`}; }
 
 /* -------- Kullanıcı kimliği (gerçek NC kullanıcısı, yoksa dev fallback) -------- */
+/* NC içinde gerçek kullanıcı; NC dışında (dev.html) açıkça sahte bir kimlik.
+   Eskiden her iki durumda da sabit bir kişi adına düşülüyordu: NC İÇİNDE kimlik
+   okunamazsa uygulama sessizce YANLIŞ kullanıcı kimliğiyle çalışırdı (okundu kayıtları
+   ve "lastUser" sıfırlaması o kimliğe yazılırdı). Artık ayrım net —
+   NC var ama kimlik yoksa boş kalır, uyarı basılır ve gerçek kimlik /api/state
+   yanıtındaki `me` ile gelir (applyState). */
 function detectUser(){
-  try{ if(window.OC&&typeof OC.getCurrentUser==='function'){const u=OC.getCurrentUser();if(u&&u.uid)return{id:u.uid,name:u.displayName||u.uid};} }catch(e){}
-  return {id:'smc',name:'safi m. ceylan'};
+  try{
+    if(window.OC&&typeof OC.getCurrentUser==='function'){
+      const u=OC.getCurrentUser();
+      if(u&&u.uid)return{id:u.uid,name:u.displayName||u.uid};
+    }
+  }catch(e){}
+  if(!window.OC)return{id:'dev',name:'Dev'};   // dev.html — NC yok
+  try{console.warn('[NextLibrary] Nextcloud kimliği okunamadı; sunucudan gelen kimlik beklenecek.');}catch(_){}
+  return {id:'',name:''};
 }
 let me=detectUser();
 /* Aynı tarayıcıda farklı NC hesabıyla giriş yapılırsa (localStorage paylaşımlı) önceki
-   kullanıcının açık koleksiyon/sayfa durumu miras alınmasın → ana ekrandan başlat. */
-{ const lastUser=LS.get('lastUser',null);
-  if(lastUser!==me.id){
-    if(lastUser!==null){ curColl=null; curPage=null; openColls.clear();
-      LS.set('curColl',null); LS.set('curPage',null); LS.set('openColls',[]); }
-    LS.set('lastUser',me.id);
-  }
+   kullanıcının açık koleksiyon/sayfa durumu miras alınmasın → ana ekrandan başlat.
+   Kimlik bilinmiyorken (me.id boş) HİÇBİR ŞEY yapmaz: aksi halde 'lastUser' boşa yazılır
+   ve kimlik sunucudan gelince her açılışta görünüm durumu yeniden sıfırlanırdı.
+   Bu yüzden loadState sonrasında bir kez daha çağrılır. */
+function scopeViewToUser(){
+  if(!me.id)return;
+  const lastUser=LS.get('lastUser',null);
+  if(lastUser===me.id)return;
+  if(lastUser!==null){ curColl=null; curPage=null; openColls.clear();
+    LS.set('curColl',null); LS.set('curPage',null); LS.set('openColls',[]); }
+  LS.set('lastUser',me.id);
 }
+scopeViewToUser();
 function userName(id){ if(!id)return''; if(id===me.id)return me.name; return pName(id); }
 
 /* -------- Rol / yetki (yetki sunucuda hesaplanır, coll.canEdit) -------- */
+// Koleksiyon açma yetkisi (sunucu: yalnızca NC yöneticileri). state() ile gelir;
+// gelmezse false kalır → yetkisiz kullanıcıya 403 üreten düğme gösterilmez.
+let canCreate=false;
 let previewAsVisitor=LS.get('previewAsVisitor',false);
 function canEdit(coll){ if(previewAsVisitor||!coll)return false; return !!coll.canEdit; }
 
 const save=()=>{}; // Kalıcılık artık sunucu API'si ile (apiSave*/pushPage çağrıları). Yerel yazma yok.
 const getColl=id=>colls.find(c=>c.id===id);
 const findPage=id=>{for(const c of colls){const p=c.pages.find(p=>p.id===id);if(p)return{coll:c,page:p};}return null;};
-const flatPages=()=>{const a=[];colls.forEach(c=>c.pages.forEach(p=>a.push({c,p})));return a;};
+/* -------- Kart ağacı (iç içe kartlar) --------
+   Sayfalar sunucudan düz liste gelir; hiyerarşi parentId ile kurulur ('0' = kök).
+   sort değeri KARDEŞLER arasında anlamlıdır, o yüzden sıralama her seviyede ayrı yapılır. */
+const childrenOf=(coll,parentId)=>(coll.pages||[])
+  .filter(p=>(p.parentId||'0')===String(parentId))
+  .sort((a,b)=>(a.sort||0)-(b.sort||0)||String(a.id).localeCompare(String(b.id)));
+const hasChildren=(coll,pageId)=>(coll.pages||[]).some(p=>(p.parentId||'0')===String(pageId));
+// Ağacı görsel sırayla (derinlik öncelikli) düzleştirir → önceki/sonraki kart bunu izler.
+function dfsPages(coll,parentId='0',out=[],guard=0){
+  if(guard>200)return out;   // bozuk veri bir döngü oluştursa bile kilitlenme
+  childrenOf(coll,parentId).forEach(p=>{ out.push(p); dfsPages(coll,p.id,out,guard+1); });
+  return out;
+}
+// Bir kartın kökten kendisine kadar olan yolu (breadcrumb ve "üst karta dön" için)
+function pathOf(coll,page){
+  const byId={}; (coll.pages||[]).forEach(p=>byId[p.id]=p);
+  const path=[]; let cur=page, guard=0;
+  while(cur&&guard++<200){ path.unshift(cur); const pid=cur.parentId||'0'; cur=pid==='0'?null:byId[pid]; }
+  return path;
+}
+// Kart + altındaki her şey (silme onayında "kaç kart gidecek" için)
+function subtreeOf(coll,page){ return [page,...dfsPages(coll,page.id)]; }
+/* Okuma sayaçlarına yalnızca YAZI SAYFALARI girer.
+   Bölümün okunacak metni yok ve "okundu" işaretlenemiyor; sayacın içinde durunca
+   ilerleme asla %100 olamıyordu ("2 sayfa · 1/2 okundu" gibi yanıltıcı çıktı). */
+const readablePages=coll=>(coll.pages||[]).filter(p=>p.kind!=='folder');
+/* Bir koleksiyondaki HER kartın altındaki kart sayısı — tek geçişte.
+   Kart başına dfsPages çağırmak koleksiyon büyüdükçe kareli maliyet çıkarıyordu
+   (780 kartlık ağaçta kapak ekranı bunu her çizimde yeniden hesaplıyordu). */
+function subtreeCounts(coll){
+  const kids={};
+  (coll.pages||[]).forEach(p=>{ const k=p.parentId||'0'; (kids[k]=kids[k]||[]).push(p.id); });
+  const memo={};
+  const visit=(id,guard)=>{
+    if(memo[id]!==undefined)return memo[id];
+    if(guard>200)return 0;
+    memo[id]=0;                       // döngüde sonsuza gitmesin
+    let n=0;
+    (kids[id]||[]).forEach(k=>{ n+=1+visit(k,guard+1); });
+    memo[id]=n; return n;
+  };
+  (coll.pages||[]).forEach(p=>visit(p.id,0));
+  return memo;
+}
+const flatPages=()=>{const a=[];colls.forEach(c=>dfsPages(c).forEach(p=>a.push({c,p})));return a;};
 
 /* -------- Sunucu ↔ model dönüşümü + yükleme -------- */
 // Sunucu koleksiyonunu istemci model şekline çevir (id'ler string tutulur → tüm render kodu aynı kalır).
@@ -124,15 +199,17 @@ function mapColl(c){
   if(c.owner)setPMeta(c.owner,c.ownerName||c.owner,'user');
   (c.members||[]).forEach(m=>{ if(m&&m.principal!==undefined)setPMeta(m.principal,m.label||m.principal,m.type||'user'); });
   return {
-    id:String(c.id), emoji:c.emoji||'📘', name:c.name||'', owner:c.owner,
+    id:String(c.id), emoji:c.emoji||'📘', icon:c.icon||'', name:c.name||'', owner:c.owner,
     canEdit:!!c.canEdit, visibility:c.visibility||'public',
     members:(c.members||[]).map(m=>(m&&m.principal!==undefined)?{principal:m.principal,role:m.role||'editor'}:{principal:m,role:'editor'}),
     // updatedAt: optimistic locking (PUT /pages/{id} lastUpdatedAt) için şart — düşerse çakışma kontrolü sessizce devre dışı kalır.
-    pages:((c.pages)||[]).map(p=>({id:String(p.id),emoji:p.emoji||'📄',title:p.title||'',html:p.html||'',sort:p.sort||0,updatedAt:p.updatedAt||0}))
+    // parentId: '0' = koleksiyonun kökü, aksi halde üst kartın id'si (iç içe kartlar)
+    pages:((c.pages)||[]).map(p=>({id:String(p.id),parentId:String(p.parentId||0),kind:p.kind==='folder'?'folder':'page',emoji:p.emoji||'📄',icon:p.icon||'',title:p.title||'',html:p.html||'',sort:p.sort||0,updatedAt:p.updatedAt||0}))
   };
 }
 function applyState(st){
   if(st&&st.me&&st.me.id){ me={id:st.me.id,name:st.me.name||st.me.id}; }
+  if(st&&st.canCreate!==undefined)canCreate=!!st.canCreate;
   colls=((st&&st.collections)||[]).map(mapColl);
   reads={}; const rs=(st&&st.reads)||{}; Object.keys(rs).forEach(k=>{reads[String(k)]=rs[k];});
 }
@@ -142,6 +219,7 @@ function applySyncState(st) {
   if (!st) return false;
   let changed = false;
   if (st.me && st.me.id) { me = { id: st.me.id, name: st.me.name || st.me.id }; }
+  if (st.canCreate !== undefined) canCreate = !!st.canCreate;
 
   if (st.deleted) {
     const delColls = new Set((st.deleted.collections || []).map(String));
@@ -216,7 +294,10 @@ async function loadState(forceFull = false, quiet = false){
   }
   // First run on an empty instance: plant the getting-started collection.
   if(since === 0 && (!st.collections||!st.collections.length) && !LS.get('seeded', false)){
-    try{ st=await api('POST','/import',{collections:seed()}); }catch(e){ apiErr(e); }
+    // Yetkisiz kullanıcıda (403) başarısız olur; bu bir hata değil — boş bir örnek
+    // koleksiyon ekleme denemesidir, sessizce geçilir.
+    try{ st=await api('POST','/import',{collections:seed()}); }
+    catch(e){ if(e&&e.status===403){ try{console.warn('[NextLibrary] seed atlandı (yetki yok)');}catch(_){} } else { apiErr(e); } }
     LS.set('seeded',true);
   }
   let changed;
@@ -436,13 +517,62 @@ function uploadImage(dataUrl){
 function downscaleImage(file,maxW,cb){
   const rd=new FileReader();
   rd.onload=()=>{ const img=new Image(); img.onload=()=>{
-      let w=img.width,h=img.height; if(w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
+      // Hem genişlik hem YÜKSEKLİK sınırlanır: eskiden yalnızca genişliğe bakılıyordu,
+      // dolayısıyla dar ve çok uzun bir görsel (ör. 300x4000) neredeyse hiç küçülmüyordu.
+      let w=img.width,h=img.height;
+      if(w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
+      if(h>maxW){ w=Math.round(w*maxW/h); h=maxW; }
+      w=Math.max(1,w); h=Math.max(1,h);
       try{ const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
         const mime=file.type==='image/png'?'image/png':'image/jpeg';
         cb(cv.toDataURL(mime, mime==='image/jpeg'?0.82:undefined));
       }catch(e){ cb(rd.result); } // fallback: orijinal
     }; img.onerror=()=>toast(t('nextlibrary','Could not read the image')); img.src=rd.result; };
   rd.onerror=()=>toast(t('nextlibrary','Could not read the file')); rd.readAsDataURL(file);
+}
+/* -------- Nextcloud dosyasını bağlantı olarak ekle --------
+   Nextcloud'un kendi dosya seçicisini (OC.dialogs.filepicker) açar. Dosyanın İÇERİĞİ
+   kopyalanmaz; sayfaya yalnızca bağlantı girer, yani dosya Files'ta güncellenince
+   bağlantı da güncel kalır ve yetkisi olmayan kimse açamaz.
+
+   Bağlantı biçimi: /index.php/f/<fileid> — fileid örnek genelindeki tekil kimliktir,
+   her kullanıcı kendi görünümünde açar. Yol (path) tabanlı adres kullanılsaydı, dosyayı
+   paylaşan başka bir kullanıcının yolu farklı olduğu için bağlantı onda kırılırdı. */
+function pickNextcloudFile(){
+  const dlg=(window.OC&&OC.dialogs&&typeof OC.dialogs.filepicker==='function')?OC.dialogs:null;
+  if(!dlg){ toast(t('nextlibrary','The Nextcloud file picker is only available inside Nextcloud')); return; }
+  try{
+    const ret=dlg.filepicker(
+      t('nextlibrary','Pick a file'),
+      target=>{
+        // Sürüme göre ya düz yol ya da nesne döner → ikisini de karşıla.
+        const path=(typeof target==='string')?target:((target&&(target.path||target.filename))||'');
+        if(!path)return;
+        insertNcFileLink(path,target&&target.fileid);
+      },
+      false, [], true,
+      dlg.FILEPICKER_TYPE_CHOOSE
+    );
+    // NC'nin yeni FilePicker'ı, diyalog dosya seçilmeden kapatılınca promise'i
+    // "No nodes selected" ile reddediyor. Eski sarmalayıcı bunu yakalamadığı için
+    // konsola yakalanmamış hata olarak düşüyordu → iptali sessizce yut.
+    if(ret&&typeof ret.catch==='function'){ ret.catch(()=>{}); }
+  }catch(err){ try{console.error('[NextLibrary filepicker]',err);}catch(_){} toast(t('nextlibrary','Could not open the file picker')); }
+}
+// Yoldan fileid'yi WebDAV PROPFIND ile çözer; çözemezse doğrudan WebDAV adresine düşer.
+function insertNcFileLink(path,knownId){
+  const name=String(path).split('/').filter(Boolean).pop()||path;
+  const put=href=>{ insertAtSaved(`<a href="${esc(href)}" target="_blank" rel="noopener">📎 ${esc(name)}</a>`,true); toast(t('nextlibrary','File linked')); };
+  if(knownId){ put(OC.generateUrl('/f/'+knownId)); return; }
+  const uid=(window.OC&&OC.getCurrentUser&&OC.getCurrentUser())?OC.getCurrentUser().uid:'';
+  const base=(window.OC&&OC.linkToRemoteBase)?OC.linkToRemoteBase('dav'):'/remote.php/dav';
+  const davUrl=base+'/files/'+encodeURIComponent(uid)+String(path).split('/').map(encodeURIComponent).join('/');
+  fetch(davUrl,{method:'PROPFIND',credentials:'same-origin',
+    headers:{'Depth':'0','Content-Type':'application/xml','requesttoken':reqToken()},
+    body:'<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop><oc:fileid/></d:prop></d:propfind>'})
+    .then(r=>r.text())
+    .then(xml=>{ const m=xml.match(/<[^>]*fileid[^>]*>(\d+)</i); put(m?OC.generateUrl('/f/'+m[1]):davUrl); })
+    .catch(()=>put(davUrl));
 }
 function pickVideoFile(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='video/mp4,video/webm,video/ogg,video/quicktime';
@@ -581,46 +711,91 @@ function openMenu(anchor,items){
 function renderTree(q=''){
   const box=el('tree');box.innerHTML='';
   colls.forEach(c=>{
-    if(curColl && c.id !== curColl) return;
+    // Bir koleksiyonun içine girmek diğerlerini ağaçtan GİZLEMEZ. Eskiden gizliyordu:
+    // yeni koleksiyon oluşturunca ilk sayfası açılıyor (openPage → curColl) ve kenar
+    // çubuğunda yalnızca o kalıyordu → kullanıcı "eski koleksiyonlarım silindi" sanıyordu.
+    // Artık hepsi listede durur; yalnızca açık olan genişletilir (openColls).
     const open=openColls.has(c.id);
     const wrap=document.createElement('div');wrap.className='coll'+(open?' open':'');
-    const pages=c.pages.filter(p=>!q||p.title.toLowerCase().includes(q.toLowerCase()));
     const ce=canEdit(c);
-    const total=c.pages.length, readN=c.pages.filter(p=>reads[p.id]).length, unread=total-readN, pct=total?Math.round(readN/total*100):0;
+    const ql=q?q.toLowerCase():'';
+    // Aramada hiyerarşi bozulmasın: eşleşen kartın ATALARI da çizilir, yoksa çocuk
+    // görünüp üstü kaybolur ve ağaç anlamsızlaşır.
+    let visible=null;
+    if(ql){
+      visible=new Set();
+      c.pages.forEach(p=>{
+        if((p.title||'').toLowerCase().includes(ql)) pathOf(c,p).forEach(a=>visible.add(a.id));
+      });
+    }
+    // Çocuk listesi tek geçişte indekslenir: her seviyede tüm diziyi süzmek
+    // (childrenOf) büyük koleksiyonda kareli maliyet çıkarıyordu.
+    const kidsMap={};
+    c.pages.forEach(p=>{ const k=p.parentId||'0'; (kidsMap[k]=kidsMap[k]||[]).push(p); });
+    Object.values(kidsMap).forEach(list=>list.sort((a,b)=>(a.sort||0)-(b.sort||0)||String(a.id).localeCompare(String(b.id))));
+    // Bir seviyeyi çiz; çocukları varsa özyinelemeli olarak altına ekle.
+    const renderLevel=(parentId,depth)=>(kidsMap[String(parentId)]||[]).map(p=>{
+      if(visible&&!visible.has(p.id))return '';
+      const kids=!!(kidsMap[p.id]&&kidsMap[p.id].length);
+      const kidsOpen=openPages.has(p.id)||!!ql;   // arama sırasında yol açık gösterilir
+      // KAPALI dal hiç çizilmez. Eskiden tüm ağaç DOM'a basılıp CSS ile gizleniyordu:
+      // 780 kartlık koleksiyonda her tıkta 784 satır yeniden üretiliyordu.
+      const inner=(kids&&kidsOpen)?renderLevel(p.id,depth+1):'';
+      return `<div class="node ${kids?(kidsOpen?'open':'closed'):''}">
+        <div class="node-row ${p.id===curPage?'active':''}" data-p="${p.id}" style="padding-left:${10+depth*14}px">
+          ${kids?`<span class="ncaret" data-toggle="${p.id}">▶</span>`:'<span class="ncaret ncaret-empty"></span>'}
+          <span class="nem">${iconHTML(p,c.id,16)}</span><span class="nname">${esc(p.title||t('nextlibrary','Untitled'))}</span>
+          ${reads[p.id]?`<span class="nread" title="En son okundu: ${readFull(reads[p.id])}">✓ ${timeAgo(reads[p.id])}</span>`:''}
+          ${ce?`<span class="act"><button data-pa="add" data-pid="${p.id}" title="${esc(t('nextlibrary','Add a page or a section inside'))}">＋</button><button data-pa="menu" data-pid="${p.id}" title="Eylemler">⋯</button></span>`:''}
+        </div>
+        ${(kids&&kidsOpen)?`<div class="subpages">${inner}</div>`:''}
+      </div>`;
+    }).join('');
+    const rp=readablePages(c);
+    const total=rp.length, readN=rp.filter(p=>reads[p.id]).length, unread=total-readN, pct=total?Math.round(readN/total*100):0;
     wrap.innerHTML=`<div class="coll-row ${c.id===curColl?'active':''}" data-c="${c.id}">
-        <span class="caret">▶</span><span class="cem">${c.emoji}</span><span class="cname">${esc(c.name)}</span>
+        <span class="caret">▶</span><span class="cem">${iconHTML(c,c.id,18)}</span><span class="cname">${esc(c.name)}</span>
         ${c.visibility==='private'?`<span class="cvis" title="${esc(t('nextlibrary','Private — only members can see it'))}">🔒</span>`:''}
         ${unread>0?`<span class="unread" title="${n('nextlibrary','%n unread page','%n unread pages',unread)}">${unread}</span>`:''}
-        ${ce?`<span class="act"><button data-ca="add" title="Sayfa ekle">＋</button><button data-ca="menu" title="Eylemler">⋯</button></span>`:''}
+        ${ce?`<span class="act"><button data-ca="add" title="${esc(t('nextlibrary','Add a page or a section'))}">＋</button><button data-ca="menu" title="Eylemler">⋯</button></span>`:''}
       </div>
       ${total?`<div class="coll-prog" title="${readN}/${total} okundu (%${pct})"><span style="width:${pct}%"></span></div>`:''}
-      <div class="pages">${pages.map(p=>`
-        <div class="node-row ${p.id===curPage?'active':''}" data-p="${p.id}">
-          <span class="nem">${p.emoji}</span><span class="nname">${esc(p.title||t('nextlibrary','Untitled'))}</span>
-          ${reads[p.id]?`<span class="nread" title="En son okundu: ${readFull(reads[p.id])}">✓ ${timeAgo(reads[p.id])}</span>`:''}
-          ${ce?`<span class="act"><button data-pa="menu" data-pid="${p.id}" title="Eylemler">⋯</button></span>`:''}
-        </div>`).join('')||'<div class="pg-empty">Sayfa yok</div>'}</div>`;
+      <div class="pages">${renderLevel('0',0)||'<div class="pg-empty">Sayfa yok</div>'}</div>`;
     box.appendChild(wrap);
   });
   box.querySelectorAll('.coll-row').forEach(r=>r.onclick=e=>{
     const cid=r.dataset.c;
     const a=e.target.closest('[data-ca]');
-    if(a){ if(a.dataset.ca==='add'){curColl=cid;openColls.add(cid);addPage();} else collActions(getColl(cid),a); return; }
+    if(a){
+      if(a.dataset.ca==='add'){ curColl=cid; openColls.add(cid); addMenu(a,'0'); }
+      else collActions(getColl(cid),a);
+      return;
+    }
     openCollection(cid); // aç/kapa mantığı openCollection içinde (çift toggle önlendi)
   });
   box.querySelectorAll('.node-row').forEach(r=>r.onclick=e=>{
-    const a=e.target.closest('[data-pa]'); if(a){pageActions(a.dataset.pid,a);return;}
+    // Ok: yalnızca aç/kapa (kartı açmadan alt kartlarına bakabilmek için)
+    const tg=e.target.closest('[data-toggle]');
+    if(tg){ const id=tg.dataset.toggle; openPages.has(id)?openPages.delete(id):openPages.add(id); persistState(); renderTree(el('kx-search').value); return; }
+    const a=e.target.closest('[data-pa]');
+    if(a){
+      if(a.dataset.pa==='add'){ openPages.add(a.dataset.pid); addMenu(a,a.dataset.pid); }
+      else pageActions(a.dataset.pid,a);
+      return;
+    }
     openPage(r.dataset.p);
   });
-  el('newCollBtn').style.display=previewAsVisitor?'none':'flex';
-  el('trashBtn').style.display=previewAsVisitor?'none':'flex';
+  const mayWrite=canCreate&&!previewAsVisitor;
+  el('newCollBtn').style.display=mayWrite?'flex':'none';
+  el('trashBtn').style.display=mayWrite?'flex':'none';
 }
 async function openTrashBin() {
   curColl = null;
   curPage = null;
   persistState();
   updateBackBtnVisibility();
-  const v = el('viewer');
+  const v = viewer();
+  if(!v)return;
   v.innerHTML = `
     <div class="home">
       <div class="home-hero">
@@ -629,6 +804,12 @@ async function openTrashBin() {
       </div>
       <div class="rail-empty" style="padding: 24px 0;" id="trashLoading">${esc(t('nextlibrary','Loading …'))}</div>
       <div id="trashContent" style="display: none; padding: 0 16px;">
+        <div class="trash-bar">
+          <label class="trash-pick"><input type="checkbox" id="trashAll"><span></span></label>
+          <span id="trashCount" class="trash-count">${esc(t('nextlibrary','Select all'))}</span>
+          <span style="flex:1"></span>
+          <button class="btn btn-danger btn-sm" id="trashPurgeSel" disabled title="${esc(t('nextlibrary','Delete permanently — cannot be undone'))}">${esc(t('nextlibrary','Delete selected'))}</button>
+        </div>
         <h2 style="font-size: 16px; margin: 20px 0 10px; color: var(--ink);">Koleksiyonlar</h2>
         <div class="home-grid" id="trashColls" style="grid-template-columns: 1fr; gap: 10px; display: flex; flex-direction: column;"></div>
         <h2 style="font-size: 16px; margin: 30px 0 10px; color: var(--ink);">Sayfalar</h2>
@@ -643,36 +824,30 @@ async function openTrashBin() {
     content.style.display = 'block';
     const tc = el('trashColls');
     const tp = el('trashPages');
-    tc.innerHTML = (trashData.collections || []).map(c => `
-      <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-soft); padding: 12px 16px; border-radius: 12px; border: 1px solid var(--line);">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 20px;">${c.emoji}</span>
-          <div>
-            <div style="font-weight: bold; color: var(--ink);">${esc(c.name)}</div>
-            <div style="font-size: 11px; color: var(--ink-soft);">${esc(t('nextlibrary','Owner: {name}',{name:userName(c.owner)}))} · ${esc(t('nextlibrary','Deleted: {when}',{when:new Date(c.deletedAt).toLocaleDateString(LOCALE)}))}</div>
-          </div>
+    // Satır: seçim kutusu + simge + ad + tarih + tekil eylemler
+    const trashRow=(kind,id,icon,title,sub)=>`
+      <div class="trash-row" data-kind="${kind}" data-id="${id}">
+        <label class="trash-pick"><input type="checkbox" class="trash-cb" data-kind="${kind}" data-id="${id}"><span></span></label>
+        <span class="trash-ico">${icon}</span>
+        <div style="flex:1;min-width:0">
+          <div class="trash-name">${esc(title)}</div>
+          <div class="trash-sub">${sub}</div>
         </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-ghost btn-sm" data-restore-coll="${c.id}" style="padding: 6px 12px; font-size: 12px;">${esc(t('nextlibrary','Restore'))}</button>
-          <button class="btn btn-ghost btn-sm" data-purge-coll="${c.id}" style="padding: 6px 12px; font-size: 12px; color: var(--brand-danger, #d9534f);">${esc(t('nextlibrary','Delete for good'))}</button>
+        <div style="display:flex;gap:8px;flex:none">
+          <button class="btn btn-ghost btn-sm" data-restore-${kind}="${id}">${esc(t('nextlibrary','Restore'))}</button>
+          <button class="btn btn-danger btn-sm" data-purge-${kind}="${id}" title="${esc(t('nextlibrary','Delete permanently — cannot be undone'))}">${esc(t('nextlibrary','Delete'))}</button>
         </div>
-      </div>
-    `).join('') || '<div class="rail-empty">'+esc(t('nextlibrary','No deleted collections.'))+'</div>';
-    tp.innerHTML = (trashData.pages || []).map(p => `
-      <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-soft); padding: 12px 16px; border-radius: 12px; border: 1px solid var(--line);">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 20px;">${p.emoji}</span>
-          <div>
-            <div style="font-weight: bold; color: var(--ink);">${esc(p.title || t('nextlibrary','Untitled'))}</div>
-            <div style="font-size: 11px; color: var(--ink-soft);">${esc(t('nextlibrary','Deleted: {when}',{when:new Date(p.deletedAt).toLocaleDateString(LOCALE)}))}</div>
-          </div>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-ghost btn-sm" data-restore-page="${p.id}" style="padding: 6px 12px; font-size: 12px;">${esc(t('nextlibrary','Restore'))}</button>
-          <button class="btn btn-ghost btn-sm" data-purge-page="${p.id}" style="padding: 6px 12px; font-size: 12px; color: var(--brand-danger, #d9534f);">${esc(t('nextlibrary','Delete for good'))}</button>
-        </div>
-      </div>
-    `).join('') || '<div class="rail-empty">'+esc(t('nextlibrary','No deleted pages.'))+'</div>';
+      </div>`;
+
+    tc.innerHTML = (trashData.collections || []).map(c =>
+      trashRow('coll', c.id, iconHTML(c, c.id, 22), c.name,
+        esc(t('nextlibrary','Owner: {name}',{name:userName(c.owner)}))+' · '+esc(t('nextlibrary','Deleted: {when}',{when:new Date(c.deletedAt).toLocaleDateString(LOCALE)})))
+    ).join('') || '<div class="rail-empty">'+esc(t('nextlibrary','No deleted collections.'))+'</div>';
+
+    tp.innerHTML = (trashData.pages || []).map(p =>
+      trashRow('page', p.id, iconHTML(p, p.collectionId, 22), p.title || t('nextlibrary','Untitled'),
+        esc(t('nextlibrary','Deleted: {when}',{when:new Date(p.deletedAt).toLocaleDateString(LOCALE)})))
+    ).join('') || '<div class="rail-empty">'+esc(t('nextlibrary','No deleted pages.'))+'</div>';
 
     // NC'nin CSP'si (nonce + strict-dynamic) inline onclick="" attribute'larını bloklar →
     // butonlar sessizce ölüydü. Kod tabanının geri kalanı gibi gerçek handler bağlıyoruz.
@@ -680,9 +855,49 @@ async function openTrashBin() {
     content.querySelectorAll('[data-purge-coll]').forEach(b => b.onclick = () => kxPurgeCollection(b.dataset.purgeColl));
     content.querySelectorAll('[data-restore-page]').forEach(b => b.onclick = () => kxRestorePage(b.dataset.restorePage));
     content.querySelectorAll('[data-purge-page]').forEach(b => b.onclick = () => kxPurgePage(b.dataset.purgePage));
+    wireTrashSelection();
   } catch (e) {
     apiErr(e);
   }
+}
+/* Çöp kutusunda toplu seçim: satır kutuları + "tümünü seç" + "seçilenleri kalıcı sil".
+   Tek tek silmek 20 kalemde işkenceydi. Silme geri alınamaz, o yüzden tek onay ekranında
+   kaç kalemin gideceği yazılır. */
+function wireTrashSelection(){
+  const boxes=()=>[...ROOT.querySelectorAll('.trash-cb')];
+  const all=el('trashAll'), btn=el('trashPurgeSel'), lbl=el('trashCount');
+  if(!btn)return;
+  const refresh=()=>{
+    const sel=boxes().filter(b=>b.checked);
+    btn.disabled=!sel.length;
+    if(lbl)lbl.textContent=sel.length
+      ? n('nextlibrary','%n item selected','%n items selected',sel.length)
+      : t('nextlibrary','Select all');
+    if(all){ all.checked=sel.length>0&&sel.length===boxes().length; all.indeterminate=sel.length>0&&sel.length<boxes().length; }
+    ROOT.querySelectorAll('.trash-row').forEach(r=>{
+      const cb=r.querySelector('.trash-cb'); r.classList.toggle('sel',!!(cb&&cb.checked));
+    });
+  };
+  boxes().forEach(b=>b.onchange=refresh);
+  if(all)all.onchange=()=>{ boxes().forEach(b=>b.checked=all.checked); refresh(); };
+  btn.onclick=async()=>{
+    const sel=boxes().filter(b=>b.checked);
+    if(!sel.length)return;
+    if(!confirm(n('nextlibrary','Permanently delete %n selected item? This cannot be undone.','Permanently delete %n selected items? This cannot be undone.',sel.length)))return;
+    btn.disabled=true;
+    let ok=0,fail=0;
+    for(const b of sel){
+      const path=b.dataset.kind==='coll'?'/collections/'+b.dataset.id+'/purge':'/pages/'+b.dataset.id+'/purge';
+      try{ await api('DELETE',path); ok++; }catch(e){ fail++; try{console.error('[NextLibrary purge]',e);}catch(_){} }
+    }
+    toast(fail
+      ? t('nextlibrary','{ok} deleted, {fail} failed',{ok:ok,fail:fail})
+      : n('nextlibrary','%n item permanently deleted','%n items permanently deleted',ok));
+    await loadState(true);
+    renderTree(el('kx-search').value);
+    openTrashBin();
+  };
+  refresh();
 }
 async function kxRestoreCollection(id) {
   if (!confirm(t('nextlibrary','Restore this collection and the deleted pages inside it?'))) return;
@@ -729,6 +944,8 @@ function openPage(id,edit=false){
   // Okundu otomatik işaretlenmez; kullanıcı "Okundu olarak işaretle" ile bilinçli tamamlar.
   curColl=f.coll.id; curPage=id; editing=edit;
   openColls.clear(); openColls.add(f.coll.id);
+  // Derinde bir kart açıldıysa ağaçta görünür olması için atalarını genişlet
+  pathOf(f.coll,f.page).slice(0,-1).forEach(a=>openPages.add(a.id));
   ROOT.classList.remove('nav-open'); persistState(); renderTree(el('kx-search').value); renderViewer(); renderRecs(); el('stage').scrollTo({top:0,behavior:'smooth'});
   updateBackBtnVisibility();
 }
@@ -737,6 +954,13 @@ function goHome(){
   openColls.clear();
   persistState(); renderTree(el('kx-search').value); renderViewer(); renderRecs(); el('stage').scrollTo({top:0,behavior:'smooth'});
   updateBackBtnVisibility();
+}
+// Koleksiyonun köküne git (aç/kapa YOK — yol satırından "en başa dön" için).
+function openCollectionRoot(cId){
+  const c=getColl(cId); if(!c)return;
+  curColl=cId; curPage=null; editing=false; openColls.add(cId);
+  persistState(); renderTree(el('kx-search').value); renderViewer(); renderRecs();
+  el('stage').scrollTo({top:0,behavior:'smooth'}); updateBackBtnVisibility();
 }
 function openCollection(cId){
   const c=getColl(cId); if(!c)return;
@@ -762,12 +986,35 @@ function updateBackBtnVisibility(){
 
 function breadcrumbHTML(){
   const f=findPage(curPage); if(!f)return'';
+  // İç içe kartlarda tam yol gösterilir: Bilgi Kartları › Koleksiyon › üst kart › … › kart
+  const path=pathOf(f.coll,f.page);
+  const mid=path.slice(0,-1).map(a=>
+    `<span class="crumb" data-p="${a.id}">${iconHTML(a,f.coll.id,14)} ${esc(a.title||t('nextlibrary','Untitled'))}</span><span class="sep">›</span>`).join('');
   return `<div class="breadcrumbs">
     <span class="crumb" data-home>${esc(t('nextlibrary','Knowledge Cards'))}</span><span class="sep">›</span>
     <span class="crumb" data-c="${f.coll.id}">${esc(f.coll.name)}</span><span class="sep">›</span>
-    <span class="crumb current">${esc(f.page.title||t('nextlibrary','Untitled'))}</span></div>`;
+    ${mid}<span class="crumb current">${esc(f.page.title||t('nextlibrary','Untitled'))}</span></div>`;
 }
 
+/**
+ * Okuma kanvasının kabı. #viewer şablonda hazır gelir; bazı kurulumlarda çalışma
+ * anında DOM'dan kayboluyor (sebep tespit edilemedi — sayfa/eklenti kaynaklı) ve o
+ * andan sonra HER render "null.innerHTML" ile patlıyordu: yeni sayfa oluşturulunca
+ * ekrana hiçbir şey gelmiyor, üstelik hata promise zincirine düşüp "sunucuya
+ * kaydedilemedi" toast'ı basılıyordu. Yoksa yeniden kurar → arayüz kendini onarır.
+ */
+function viewer(){
+  let v=el('viewer');
+  if(!v){
+    const stage=el('stage');
+    if(!stage)return null;
+    v=document.createElement('div');
+    v.id='viewer';
+    stage.appendChild(v);
+    try{console.warn('[NextLibrary] #viewer DOM\'dan kaybolmuştu, yeniden oluşturuldu');}catch(_){}
+  }
+  return v;
+}
 const stripHtml=h=>{const d=document.createElement('div');d.innerHTML=h||'';return d.textContent||'';};
 function readingTime(html){ const n=stripHtml(html).trim().split(/\s+/).filter(Boolean).length; return Math.max(1,Math.round(n/200)); }
 
@@ -782,43 +1029,103 @@ function wireReadCtl(p){
 }
 function renderReadCtl(p){ const c=el('readCtl'); if(c){ c.innerHTML=readCtlHTML(p); wireReadCtl(p); } }
 function renderCollectionHome(v,c){
-  const total=c.pages.length;
-  const readN=c.pages.filter(p=>reads[p.id]).length;
+  const rp=readablePages(c);
+  const total=rp.length;
+  const readN=rp.filter(p=>reads[p.id]).length;
   const pct=total?Math.round(readN/total*100):0;
   v.innerHTML=`<div class="breadcrumbs">
       <span class="crumb" data-home>${esc(t('nextlibrary','Knowledge Cards'))}</span><span class="sep">›</span>
-      <span class="crumb current">${c.emoji} ${esc(c.name)}</span>
+      <span class="crumb current">${iconHTML(c,c.id,14)} ${esc(c.name)}</span>
     </div>
     <div class="home">
       <div class="home-hero" style="display:flex;align-items:center;gap:16px;padding:20px 0 26px;">
-        <span style="font-size:38px;background:var(--brand-soft);color:var(--brand-ink);width:64px;height:64px;border-radius:16px;display:grid;place-items:center;flex:none">${c.emoji}</span>
+        <span style="font-size:38px;background:var(--brand-soft);color:var(--brand-ink);width:64px;height:64px;border-radius:16px;display:grid;place-items:center;flex:none">${iconHTML(c,c.id,44)}</span>
         <div style="flex:1;min-width:0">
           <h1 style="font-size:28px;font-weight:800;letter-spacing:-.5px;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</h1>
           <p style="color:var(--ink-soft);font-size:14px">${total} sayfa · ${readN}/${total} okundu (%${pct})</p>
         </div>
       </div>
       <div class="home-grid">
-        ${c.pages.map(p=>{
+        ${(()=>{const counts=subtreeCounts(c);return childrenOf(c,'0').map(p=>{
           const isRead=!!reads[p.id];
+          const kids=counts[p.id]||0;
           const snippet=stripHtml(p.html).slice(0,100);
           return `<button class="home-card" data-hpage="${p.id}" style="text-align:left;height:100%;display:flex;flex-direction:column;gap:8px">
-            <span class="hc-em" style="width:36px;height:36px;font-size:18px;border-radius:9px;background:var(--brand-soft);display:grid;place-items:center">${p.emoji}</span>
+            <span class="hc-em" style="width:36px;height:36px;font-size:18px;border-radius:9px;background:var(--brand-soft);display:grid;place-items:center">${iconHTML(p,c.id,24)}</span>
             <span class="hc-name" style="font-size:14px;font-weight:700;color:var(--ink);margin-top:2px">${esc(p.title||t('nextlibrary','Untitled'))}</span>
-            <span class="hc-meta" style="font-size:12px;color:var(--ink-soft);flex:1;line-height:1.4">${esc(snippet)}${snippet.length>=100?'...':''}</span>
+            <span class="hc-meta" style="font-size:12px;color:var(--ink-soft);flex:1;line-height:1.4">${p.kind==='folder'?'':esc(snippet)+(snippet.length>=100?'...':'')}</span>
             <span style="font-size:11px;font-weight:700;color:${isRead?'var(--brand)':'var(--ink-faint)'};display:flex;align-items:center;gap:4px;margin-top:auto">
-              ${isRead?'✓ '+esc(t('nextlibrary','Read')):'◯ '+esc(t('nextlibrary','Unread'))}
+              ${p.kind==='folder'?'':(isRead?'✓ '+esc(t('nextlibrary','Read')):'◯ '+esc(t('nextlibrary','Unread')))}
+              ${kids?`<span class="hc-kids" title="${esc(n('nextlibrary','%n card inside','%n cards inside',kids))}">· ${kids} ↳</span>`:''}
             </span>
           </button>`;
-        }).join('')||'<div class="rail-empty">'+esc(t('nextlibrary','No pages in this collection yet.'))+'</div>'}
+        }).join('')})()||'<div class="rail-empty">'+esc(t('nextlibrary','No pages in this collection yet.'))+'</div>'}
       </div>
     </div>`;
   v.querySelectorAll('[data-hpage]').forEach(b=>{b.onclick=()=>openPage(b.dataset.hpage);});
   v.querySelectorAll('.crumb').forEach(cr=>{cr.onclick=()=>{if('home' in cr.dataset)goHome();};});
 }
 
+// Bölüm (folder): yazı tutmaz, yalnızca alt kartlarını gösterir. Koleksiyon kapak
+// ekranının aynısı, bir seviye altta — düzenleyici, okuma süresi, okundu düğmesi yok.
+function renderSectionHome(v,f){
+  const c=f.coll,p=f.page;
+  const kids=childrenOf(c,p.id);
+  const ce=canEdit(c);
+  const readableKids=kids.filter(k=>k.kind!=='folder');
+  const readN=readableKids.filter(k=>reads[k.id]).length;
+  v.innerHTML=`${breadcrumbHTML()}
+    <div class="home">
+      <div class="home-hero" style="display:flex;align-items:center;gap:16px;padding:20px 0 26px;">
+        <button id="secEmoji" style="font-size:38px;background:var(--brand-soft);color:var(--brand-ink);width:64px;height:64px;border-radius:16px;display:grid;place-items:center;flex:none;border:none;cursor:${ce?'pointer':'default'}">${iconHTML(p,c.id,44)}</button>
+        <div style="flex:1;min-width:0">
+          <h1 style="font-size:28px;font-weight:800;letter-spacing:-.5px;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.title||t('nextlibrary','Untitled'))}</h1>
+          <p style="color:var(--ink-soft);font-size:14px">📁 ${esc(t('nextlibrary','Section'))} · ${n('nextlibrary','%n card inside','%n cards inside',kids.length)}${readableKids.length?` · ${readN}/${readableKids.length} ${esc(t('nextlibrary','read'))}`:''}</p>
+        </div>
+        ${ce?`<button class="btn btn-ghost" id="secRename">✏️ ${esc(t('nextlibrary','Rename'))}</button>`:''}
+      </div>
+      <div class="home-grid">
+        ${(()=>{const counts=subtreeCounts(c);return kids.map(k=>{
+          const isRead=!!reads[k.id];
+          const deeper=counts[k.id]||0;
+          const snippet=k.kind==='folder'?'':stripHtml(k.html).slice(0,100);
+          return `<button class="home-card" data-hpage="${k.id}" style="text-align:left;height:100%;display:flex;flex-direction:column;gap:8px">
+            <span class="hc-em" style="width:36px;height:36px;font-size:18px;border-radius:9px;background:var(--brand-soft);display:grid;place-items:center">${iconHTML(k,c.id,24)}</span>
+            <span class="hc-name" style="font-size:14px;font-weight:700;color:var(--ink);margin-top:2px">${esc(k.title||t('nextlibrary','Untitled'))}</span>
+            <span class="hc-meta" style="font-size:12px;color:var(--ink-soft);flex:1;line-height:1.4">${k.kind==='folder'?'':esc(snippet)+(snippet.length>=100?'...':'')}</span>
+            <span style="font-size:11px;font-weight:700;color:${isRead?'var(--brand)':'var(--ink-faint)'};display:flex;align-items:center;gap:4px;margin-top:auto">
+              ${k.kind==='folder'?'':(isRead?'✓ '+esc(t('nextlibrary','Read')):'◯ '+esc(t('nextlibrary','Unread')))}
+              ${deeper?`<span class="hc-kids">· ${deeper} ↳</span>`:''}
+            </span>
+          </button>`;
+        }).join('')})()||'<div class="rail-empty">'+esc(t('nextlibrary','This section is empty yet.'))+'</div>'}
+      </div>
+      ${ce?`<div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-ghost" id="addChildBtn">＋ ${esc(t('nextlibrary','Page'))}</button>
+        <button class="btn btn-ghost" id="addChildSecBtn">＋ ${esc(t('nextlibrary','Section'))}</button>
+      </div>`:''}
+    </div>`;
+  v.querySelectorAll('[data-hpage]').forEach(b=>b.onclick=()=>openPage(b.dataset.hpage));
+  v.querySelectorAll('.crumb').forEach(cr=>cr.onclick=()=>{
+    if('home' in cr.dataset)goHome();
+    else if(cr.dataset.c)openCollection(cr.dataset.c);
+    else if(cr.dataset.p)openPage(cr.dataset.p);
+  });
+  const ab=el('addChildBtn'); if(ab)ab.onclick=()=>{ openPages.add(p.id); addPage(p.id,'page'); };
+  const sb=el('addChildSecBtn'); if(sb)sb.onclick=()=>{ openPages.add(p.id); addPage(p.id,'folder'); };
+  const em=el('secEmoji'); if(em&&ce)em.onclick=()=>openEmoji(em,(e,x)=>{
+    if(x){ p.icon=x.icon; pushPage(p.id,{icon:x.icon}); }
+    else { p.emoji=e; p.icon=''; pushPage(p.id,{emoji:e,icon:''}); }
+    renderTree(el('kx-search').value); renderViewer();
+  },{collectionId:c.id,hasIcon:!!p.icon});
+  const rn=el('secRename'); if(rn)rn.onclick=()=>{ const nv=prompt(t('nextlibrary','New page name:'),p.title||''); if(nv&&nv.trim()){p.title=nv.trim();pushPage(p.id,{title:p.title});renderTree(el('kx-search').value);renderViewer();} };
+}
+
 function renderViewer(){
   const f=findPage(curPage);
-  const v=el('viewer');
+  const v=viewer();
+  if(!v)return;
+  if(f&&f.page.kind==='folder'){ renderSectionHome(v,f); return; }   // renderRecs'i çağıranlar zaten çağırıyor
   if(!f){
     if(curColl){
       const c=getColl(curColl);
@@ -836,7 +1143,7 @@ function renderViewer(){
   v.innerHTML=`${breadcrumbHTML()}
    <div class="canvas"><div class="doc">
      <div class="doc-top">
-       <button class="doc-emoji" id="docEmoji">${p.emoji}</button>
+       <button class="doc-emoji" id="docEmoji">${iconHTML(p,f.coll.id,30)}</button>
        <input class="doc-title" id="docTitle" value="${esc(p.title)}" placeholder="${esc(t('nextlibrary','Untitled'))}" ${editing?'':'readonly'}>
        ${edit?`<button class="btn btn-primary" id="editToggle">${editing?'✔ '+esc(t('nextlibrary','Done')):'🖊 '+esc(t('nextlibrary','Edit'))}</button>`:''}
      </div>
@@ -866,26 +1173,67 @@ function renderViewer(){
        <button class="tbtn" data-cmd="hr" title="${esc(t('nextlibrary','Divider'))}">―</button><span class="tsep"></span>
        <button class="tbtn" data-cmd="emoji" title="Emoji">🙂</button>
        <button class="tbtn" data-cmd="image" title="${esc(t('nextlibrary','Image'))}">🖼</button>
-       <button class="tbtn" data-cmd="video" title="Video">🎬</button><span class="tsep"></span>
+       <button class="tbtn" data-cmd="video" title="Video">🎬</button>
+       <button class="tbtn" data-cmd="ncfile" title="${esc(t('nextlibrary','Link a file from Nextcloud'))}">${SVG_PAPERCLIP}</button><span class="tsep"></span>
        <button class="tbtn" data-cmd="clear" title="${esc(t('nextlibrary','Clear formatting'))}">✧</button>
      </div>
      <div class="doc-content" id="kx-body" data-ph="${esc(t('nextlibrary','Add a note, a list or a link …'))}" contenteditable="${editing}">${sanitize(p.html)}</div>
    </div>
+   <div class="ex-wrap" id="childWrap"></div>
    <div class="prevnext" id="prevNext"></div>
    <div class="ex-wrap" id="exploreWrap"></div></div>`;
 
   if(edit){
     el('editToggle').onclick=()=>{ if(editing){savePage();editing=false;toast('Kaydedildi');}else editing=true; renderViewer(); if(editing)setTimeout(()=>el('docTitle').focus(),40); };
-    el('docEmoji').onclick=()=>openEmoji(el('docEmoji'),e=>{p.emoji=e;el('docEmoji').textContent=e;pushPage(p.id,{emoji:e});renderTree(el('kx-search').value);});
+    el('docEmoji').onclick=()=>openEmoji(el('docEmoji'),(e,x)=>{
+      if(x){ p.icon=x.icon; pushPage(p.id,{icon:x.icon}); }
+      else { p.emoji=e; p.icon=''; pushPage(p.id,{emoji:e,icon:''}); }
+      renderTree(el('kx-search').value); renderViewer();
+    },{collectionId:f.coll.id,hasIcon:!!p.icon});
     el('docTitle').addEventListener('input',debounce(()=>{p.title=el('docTitle').value;saveCurrentPage();renderTree(el('kx-search').value);},250));
     el('kx-body').addEventListener('input',debounce(()=>{p.html=sanitize(serializeBody());saveCurrentPage();},400));
     el('toolbar').addEventListener('click',toolbarClick);
     if(editing){ decorateEditMedia(); wireDropZone(el('kx-body')); }
   }
-  el('viewer').querySelectorAll('.crumb').forEach(cr=>cr.onclick=()=>{ if('home' in cr.dataset){goHome();} else if(cr.dataset.c){openCollection(cr.dataset.c);} });
+  v.querySelectorAll('.crumb').forEach(cr=>cr.onclick=()=>{
+    if('home' in cr.dataset)goHome();
+    else if(cr.dataset.c)openCollection(cr.dataset.c);
+    else if(cr.dataset.p)openPage(cr.dataset.p);   // yoldaki üst karta dön
+  });
   wireReadCtl(p);
+  renderChildren(f);
   renderPrevNext(f);
   renderExplore(f);
+}
+
+/* Kartın içindeki kartlar: koleksiyon ana ekranındaki ızgaranın aynısı, bir seviye altta.
+   "Klasöre girince kendi kartları çıkıyor" davranışı böylece her derinlikte aynı olur. */
+function renderChildren(f){
+  const w=el('childWrap'); if(!w)return;
+  const kids=childrenOf(f.coll,f.page.id);
+  const ce=canEdit(f.coll);
+  const addBtns=ce?`<div style="display:flex;gap:8px;margin-top:${kids.length?'10px':'0'}">
+      <button class="btn btn-ghost" id="addChildBtn">＋ ${esc(t('nextlibrary','Page'))}</button>
+      <button class="btn btn-ghost" id="addChildSecBtn">＋ ${esc(t('nextlibrary','Section'))}</button>
+    </div>`:'';
+  if(!kids.length){
+    w.innerHTML=ce?`<div class="ex-head">${esc(t('nextlibrary','Cards inside'))}</div>${addBtns}`:'';
+  }else{
+    const counts=subtreeCounts(f.coll);
+    w.innerHTML=`<div class="ex-head">${esc(t('nextlibrary','Cards inside'))}</div><div class="ex-grid">`+
+      kids.map(p=>{
+        const deeper=counts[p.id]||0;
+        const desc=p.kind==='folder'?'':esc(stripHtml(p.html).slice(0,80))+'…';
+        return `<button class="topic-card" data-cp="${p.id}">
+          <span class="tc-ico">${iconHTML(p,f.coll.id,22)}</span>
+          <span class="tc-title">${esc(p.title||t('nextlibrary','Untitled'))}</span>
+          <span class="tc-desc">${desc}</span>
+          <span class="tc-go">${p.kind==='folder'?esc(t('nextlibrary','Open'))+' →':(reads[p.id]?'✓ '+esc(t('nextlibrary','Read')):esc(t('nextlibrary','Open'))+' →')}${deeper?` · ${deeper} ↳`:''}</span></button>`;
+      }).join('')+`</div>`+addBtns;
+  }
+  w.querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>openPage(b.dataset.cp));
+  const ab=el('addChildBtn'); if(ab)ab.onclick=()=>{ openPages.add(f.page.id); addPage(f.page.id,'page'); };
+  const sb=el('addChildSecBtn'); if(sb)sb.onclick=()=>{ openPages.add(f.page.id); addPage(f.page.id,'folder'); };
 }
 function savePage(){ const f=findPage(curPage); if(!f)return; f.page.title=el('docTitle').value; f.page.html=sanitize(serializeBody()); flushPage(); renderTree(el('kx-search').value); }
 
@@ -895,7 +1243,8 @@ function renderHome(v){
   v.innerHTML=`<div class="home">
     <div class="home-hero"><h1>${first?esc(t('nextlibrary','Hello, {name}',{name:first})):esc(t('nextlibrary','Hello'))} 👋</h1><p>${esc(t('nextlibrary','Pick a collection to start reading. Your progress is saved automatically.'))}</p></div>
     <div class="home-grid">${colls.map(c=>{
-      const total=c.pages.length, readN=c.pages.filter(p=>reads[p.id]).length, pct=total?Math.round(readN/total*100):0;
+      const rp=readablePages(c);
+      const total=rp.length, readN=rp.filter(p=>reads[p.id]).length, pct=total?Math.round(readN/total*100):0;
       return `<button class="home-card" data-hc="${c.id}">
         <span class="hc-em">${c.emoji}</span>
         <span class="hc-name">${esc(c.name)}</span>
@@ -906,13 +1255,18 @@ function renderHome(v){
 }
 
 /* -------- Önceki / sonraki ders -------- */
+/* Önceki/sonraki YALNIZCA aynı klasörün içinde gezinir.
+   Eskiden tüm koleksiyonların düz sırasında yürüyordu → "Sonraki" bambaşka bir
+   klasördeki (hatta başka koleksiyondaki) karta atlıyordu. Klasörün son kartındaysan
+   ok görünmez; yukarı çıkmak breadcrumb/sağ panelin işi. */
 function renderPrevNext(f){
   const w=el('prevNext'); if(!w)return;
-  const flat=flatPages(); const i=flat.findIndex(x=>x.p.id===f.page.id);
-  const prev=i>0?flat[i-1]:null, next=i>=0&&i<flat.length-1?flat[i+1]:null;
+  const sibs=childrenOf(f.coll,f.page.parentId||'0');
+  const i=sibs.findIndex(x=>x.id===f.page.id);
+  const prev=i>0?sibs[i-1]:null, next=(i>=0&&i<sibs.length-1)?sibs[i+1]:null;
   if(!prev&&!next){w.innerHTML='';return;}
-  w.innerHTML=`${prev?`<button class="pn" data-p="${prev.p.id}"><span class="pn-dir">← ${esc(t('nextlibrary','Previous'))}</span><span class="pn-t">${prev.p.emoji} ${esc(prev.p.title||t('nextlibrary','Untitled'))}</span></button>`:'<span></span>'}
-    ${next?`<button class="pn pn-next" data-p="${next.p.id}"><span class="pn-dir">${esc(t('nextlibrary','Next'))} →</span><span class="pn-t">${next.p.emoji} ${esc(next.p.title||t('nextlibrary','Untitled'))}</span></button>`:'<span></span>'}`;
+  w.innerHTML=`${prev?`<button class="pn" data-p="${prev.id}"><span class="pn-dir">← ${esc(t('nextlibrary','Previous'))}</span><span class="pn-t">${iconHTML(prev,f.coll.id,16)} ${esc(prev.title||t('nextlibrary','Untitled'))}</span></button>`:'<span></span>'}
+    ${next?`<button class="pn pn-next" data-p="${next.id}"><span class="pn-dir">${esc(t('nextlibrary','Next'))} →</span><span class="pn-t">${iconHTML(next,f.coll.id,16)} ${esc(next.title||t('nextlibrary','Untitled'))}</span></button>`:'<span></span>'}`;
   w.querySelectorAll('.pn').forEach(b=>b.onclick=()=>openPage(b.dataset.p));
 }
 
@@ -1017,7 +1371,7 @@ function toolbarClick(e){
   const cmd=b.dataset.cmd;
   const ins=h=>execCmd('insertHTML',h);
   // Menü açan komutlar seçimi kaybettirmemeli → önce sakla, odağı geri alma
-  if(cmd==='image'||cmd==='video'||cmd==='block'||cmd==='color'||cmd==='hilite'||cmd==='align'){ saveSel(); }
+  if(cmd==='image'||cmd==='video'||cmd==='ncfile'||cmd==='block'||cmd==='color'||cmd==='hilite'||cmd==='align'){ saveSel(); }
   else { el('kx-body').focus(); }
   switch(cmd){
     case 'undo':execCmd('undo');break;
@@ -1034,7 +1388,7 @@ function toolbarClick(e){
     case 'unlink':execCmd('unlink');break;
     case 'link':{const raw=prompt(t('nextlibrary','Link address:'),'https://');if(raw===null)break;const u=safeUrl(raw);if(u)execCmd('createLink',u);else toast(t('nextlibrary','Invalid link (only http/https)'));break;}
     case 'callout':ins('<blockquote>ℹ️ Bilgi notu…</blockquote>');break;
-    case 'emoji':openEmoji(b,em=>ins(em));break;
+    case 'emoji':openEmoji(b,em=>{ if(em)ins(em); },{upload:false});break;
     case 'block':openMenu(b,KX_BLOCKS.map(([tag,label,icon])=>({icon,label,fn:()=>{ restoreSel(); execCmd('formatBlock',tag); afterEdit(); }})));e.stopPropagation();return;
     case 'color':openSwatch(b,KX_COLORS,'text',c=>{ restoreSel(); applyInlineClass(c,/^kx-c-/); afterEdit(); });e.stopPropagation();return;
     case 'hilite':openSwatch(b,KX_HILITES,'bg',c=>{ restoreSel(); applyInlineClass(c,/^kx-hl-/); afterEdit(); });e.stopPropagation();return;
@@ -1047,6 +1401,7 @@ function toolbarClick(e){
       {icon:'💻',label:t('nextlibrary','Upload a video from this device'),fn:()=>pickVideoFile()},
       {icon:'🔗',label:t('nextlibrary','YouTube / Vimeo / MP4 link'),fn:()=>{const raw=prompt(t('nextlibrary','Video link (YouTube, Vimeo or .mp4):'),'https://');if(raw===null)return;const emb=videoEmbedHTML(raw);if(emb)insertAtSaved(emb,true);else toast(t('nextlibrary','Unsupported video link'));}}
     ]);e.stopPropagation();return;
+    case 'ncfile':pickNextcloudFile();e.stopPropagation();return;
   }
   afterEdit();
 }
@@ -1078,76 +1433,133 @@ function openSwatch(anchor,list,kind,cb){
 }
 document.addEventListener('click',e=>{ const p=el('kxPop'); if(p&&!e.target.closest('#kxPop')&&!e.target.closest('[data-cmd=color]')&&!e.target.closest('[data-cmd=hilite]'))p.classList.remove('show'); });
 
-/* -------- Akıllı ilgili-sayfa mantığı -------- */
-const STOP=new Set(['ve','ile','bir','bu','şu','için','ama','çok','daha','gibi','olan','olarak','the','and','veya','de','da','ki','mi','mı','ise','her','en','ne','ya']);
-function words(s){return (s||'').toLowerCase().replace(/<[^>]+>/g,' ').replace(/[^\p{L}\p{N}\s]/gu,' ').split(/\s+/).filter(w=>w.length>2&&!STOP.has(w));}
-function relatedPages(page,coll,limit){
-  const tw=new Set(words(page.title));
-  const cw=new Set(words(stripHtml(page.html)));
-  const scored=[];
-  coll.pages.forEach(p=>{
-    if(p.id===page.id)return;
-    let s=0;
-    words(p.title).forEach(w=>{ if(tw.has(w))s+=3; if(cw.has(w))s+=1; });
-    words(stripHtml(p.html)).forEach(w=>{ if(tw.has(w))s+=1; });
-    scored.push({p,c:coll,s});
-  });
-  scored.sort((a,b)=>b.s-a.s);
-  let out=scored.filter(x=>x.s>0);
-  if(out.length<limit){
-    const rest=scored.filter(x=>x.s===0);
-    out=out.concat(rest);
-  }
-  return out.slice(0,limit);
-}
+/* NOT: Kelime skorlamalı "ilgili sayfa" mantığı kaldırıldı. Koleksiyonun her yerinden
+   kart öneriyordu; artık hem sağ panel hem sayfa altı yalnızca bulunulan klasörün
+   kartlarını gösteriyor (childrenOf). */
 
-/* -------- Sağ öneriler -------- */
+/* -------- Sağ panel: BULUNDUĞUN KLASÖR --------
+   Eskiden koleksiyonun tamamından "ilgili sayfalar" listeleniyordu; iç içe yapıda bu
+   nerede olduğunu değil, her yeri gösteriyordu. Artık panel yalnızca içinde bulunduğun
+   klasörün kartlarını listeler ve en üstte tek satır yol vardır: bir adıma basmak
+   üst klasöre (ya da koleksiyonun köküne) döndürür. */
 function renderRecs(){
-  const box=el('recs');const f=findPage(curPage);
-  if(!f){box.innerHTML='<div class="rail-empty">'+esc(t('nextlibrary','Select a page to start reading.'))+'</div>';return;}
-  const rel=relatedPages(f.page,f.coll,6);
-  if(!rel.length){box.innerHTML='<div class="rail-empty">'+esc(t('nextlibrary','No other pages.'))+'</div>';return;}
-  box.innerHTML=rel.map(({p,c})=>`<button class="rec" data-p="${p.id}">
-     <span class="rem">${p.emoji}</span><span><span class="rt">${esc(p.title||t('nextlibrary','Untitled'))}${reads[p.id]?' <span class="rec-ok">✓</span>':''}</span>
-     <span class="rd">${esc(c.name)} · ${esc(stripHtml(p.html).slice(0,42))}…</span></span></button>`).join('');
+  const box=el('recs'); if(!box)return;
+  const f=findPage(curPage);
+  const coll=f?f.coll:getColl(curColl);
+  if(!coll){ box.innerHTML='<div class="rail-empty">'+esc(t('nextlibrary','Select a page to start reading.'))+'</div>'; return; }
+
+  // İçinde bulunduğumuz klasör: açık kart bir bölümse kendisi, değilse üstü.
+  const here=(f&&f.page.kind==='folder')?f.page:(f?(f.page.parentId!=='0'?coll.pages.find(p=>p.id===f.page.parentId):null):null);
+  const parentId=here?here.id:'0';
+  const items=childrenOf(coll,parentId);
+  const counts=subtreeCounts(coll);
+
+  // Tek satır yol: Koleksiyon › … › bulunulan klasör
+  const trail=here?pathOf(coll,here):[];
+  const pathHTML=`<div class="rail-path" title="${esc(t('nextlibrary','Go back up'))}">`+
+    `<span class="rp-step" data-rc="${coll.id}">${iconHTML(coll,coll.id,14)} ${esc(coll.name)}</span>`+
+    trail.map((a,i)=>`<span class="rp-sep">›</span><span class="rp-step ${i===trail.length-1?'cur':''}" data-rp="${a.id}">${esc(a.title||t('nextlibrary','Untitled'))}</span>`).join('')+
+    `</div>`;
+
+  const listHTML=items.length
+    ? items.map(p=>`<button class="rec ${p.id===curPage?'cur':''}" data-p="${p.id}">
+        <span class="rem">${iconHTML(p,coll.id,18)}</span><span><span class="rt">${esc(p.title||t('nextlibrary','Untitled'))}${reads[p.id]?' <span class="rec-ok">✓</span>':''}</span>
+        <span class="rd">${p.kind==='folder'?esc(n('nextlibrary','%n card inside','%n cards inside',counts[p.id]||0)):esc(stripHtml(p.html).slice(0,42))+'…'}</span></span></button>`).join('')
+    : '<div class="rail-empty">'+esc(t('nextlibrary','This section is empty yet.'))+'</div>';
+
+  box.innerHTML=pathHTML+listHTML;
   box.querySelectorAll('.rec').forEach(r=>r.onclick=()=>openPage(r.dataset.p));
+  box.querySelectorAll('[data-rp]').forEach(r=>r.onclick=()=>openPage(r.dataset.rp));
+  box.querySelectorAll('[data-rc]').forEach(r=>r.onclick=()=>openCollectionRoot(r.dataset.rc));
 }
 
-/* -------- Sayfa altı "Buradan devam et" -------- */
+/* -------- Sayfa altı "Buradan devam et" --------
+   Yalnızca AYNI KLASÖRDEKİ diğer kartlar. Eskiden koleksiyonun tamamından "ilgili"
+   sayfalar geliyordu; okuyucu, içinde olmadığı klasörlerin belgelerini görüyordu. */
 function renderExplore(f){
   const w=el('exploreWrap'); if(!w)return;
-  const rel=relatedPages(f.page,f.coll,4);
-  if(!rel.length){w.innerHTML='';return;}
+  const c=f.coll;
+  const sibs=childrenOf(c,f.page.parentId||'0').filter(p=>p.id!==f.page.id).slice(0,4);
+  if(!sibs.length){w.innerHTML='';return;}
+  const counts=subtreeCounts(c);
   w.innerHTML=`<div class="ex-head">Buradan devam et</div><div class="ex-grid">`+
-    rel.map(({p,c})=>`<button class="topic-card" data-p="${p.id}">
-       <span class="tc-ico">${p.emoji}</span>
-       <span class="tc-tag">${esc(c.name)}</span>
+    sibs.map(p=>`<button class="topic-card" data-p="${p.id}">
+       <span class="tc-ico">${iconHTML(p,c.id,22)}</span>
        <span class="tc-title">${esc(p.title||t('nextlibrary','Untitled'))}</span>
-       <span class="tc-desc">${esc(stripHtml(p.html).slice(0,80))}…</span>
-       <span class="tc-go">${reads[p.id]?'✓ '+esc(t('nextlibrary','Read')):esc(t('nextlibrary','Open'))+' →'}</span></button>`).join('')+`</div>`;
+       <span class="tc-desc">${p.kind==='folder'?esc(n('nextlibrary','%n card inside','%n cards inside',counts[p.id]||0)):esc(stripHtml(p.html).slice(0,80))+'…'}</span>
+       <span class="tc-go">${p.kind==='folder'?esc(t('nextlibrary','Open'))+' →':(reads[p.id]?'✓ '+esc(t('nextlibrary','Read')):esc(t('nextlibrary','Open'))+' →')}</span></button>`).join('')+`</div>`;
   w.querySelectorAll('.topic-card').forEach(b=>b.onclick=()=>openPage(b.dataset.p));
 }
 
 /* -------- Sayfa/koleksiyon işlemleri (bağlam menüsü) -------- */
-function addPage(){ const c=getColl(curColl);if(!c)return;
-  api('POST','/collections/'+c.id+'/pages',{emoji:'📄',title:'',html:''}).then(p=>{
-    const np={id:String(p.id),emoji:p.emoji||'📄',title:p.title||'',html:p.html||''};
-    c.pages.push(np); openColls.add(c.id); openPage(np.id,true); toast('Sayfa eklendi');
+/* Ağaçtaki ＋ düğmesi: doğrudan sayfa eklemek yerine türü sorar.
+   ('İçine kart ekle' akışının her yerde aynı iki seçeneği sunması için.) */
+function addMenu(anchor,parentId){
+  openMenu(anchor,[
+    {icon:'📄',label:t('nextlibrary','Page'),fn:()=>addPage(parentId,'page')},
+    {icon:'📁',label:t('nextlibrary','Section'),fn:()=>addPage(parentId,'folder')}
+  ]);
+}
+// parentId verilirse kart o kartın ALTINA eklenir ('0' = koleksiyonun kökü)
+// kind: 'page' (yazı sayfası) | 'folder' (bölüm)
+function addPage(parentId='0',kind='page'){ const c=getColl(curColl);if(!c)return;
+  const folder=kind==='folder';
+  api('POST','/collections/'+c.id+'/pages',{emoji:folder?'📁':'📄',title:'',html:'',kind:folder?'folder':'page',parentId:parentId==='0'?0:Number(parentId)}).then(p=>{
+    // Buraya gelindiyse sunucu kaydı BAŞARILI. Sonrası yalnızca arayüz çizimi; orada
+    // çıkan bir hata .catch(apiErr)'e düşerse kullanıcıya "sunucuya kaydedilemedi"
+    // denir ve sayfa gerçekte oluşmuşken kaybolmuş sanılır → çizimi ayrı yakala.
+    try{
+      const np={id:String(p.id),parentId:String(p.parentId||0),kind:p.kind==='folder'?'folder':'page',emoji:p.emoji||'📄',icon:p.icon||'',title:p.title||'',html:p.html||'',sort:p.sort||0};
+      c.pages.push(np); openColls.add(c.id);
+      // Bölüm düzenleyiciyle açılmaz (yazısı yok) → kapak görünümüyle açılır
+      openPage(np.id,np.kind!=='folder');
+      toast(np.parentId==='0'?t('nextlibrary','Card added'):t('nextlibrary','Card added inside'));
+    }catch(err){ try{console.error('[NextLibrary render]',err);}catch(_){} }
   }).catch(apiErr);
 }
 function pageActions(pid,anchor){
   const f=findPage(pid);if(!f)return;
   openMenu(anchor,[
     {icon:'📄',label:t('nextlibrary','Open'),fn:()=>openPage(pid)},
+    {icon:'➕',label:t('nextlibrary','Add a page inside'),fn:()=>{ curColl=f.coll.id; openPages.add(pid); addPage(pid,'page'); }},
+    {icon:'📁',label:t('nextlibrary','Add a section inside'),fn:()=>{ curColl=f.coll.id; openPages.add(pid); addPage(pid,'folder'); }},
+    {icon:f.page.kind==='folder'?'📄':'📁',
+     label:f.page.kind==='folder'?t('nextlibrary','Turn into a page'):t('nextlibrary','Turn into a section'),
+     fn:()=>{
+       const nk=f.page.kind==='folder'?'page':'folder';
+       f.page.kind=nk;
+       // Bölüme çevrilen kartın yazısı SİLİNMEZ, yalnızca gösterilmez (geri çevirince döner).
+       pushPage(pid,{kind:nk});
+       renderTree(el('kx-search').value); if(curPage===pid)renderViewer(); renderRecs();
+       toast(nk==='folder'?t('nextlibrary','Turned into a section'):t('nextlibrary','Turned into a page'));
+     }},
     {icon:'✏️',label:t('nextlibrary','Rename'),fn:()=>{const v=prompt(t('nextlibrary','New page name:'),f.page.title||'');if(v&&v.trim()){f.page.title=v.trim();pushPage(pid,{title:f.page.title});renderTree(el('kx-search').value);if(curPage===pid)renderViewer();}}},
     {sep:true},
-    {icon:'🗑️',label:t('nextlibrary','Delete'),danger:true,fn:()=>{ if(!confirm(t('nextlibrary','Delete the page "{title}"? This cannot be undone.',{title:f.page.title||t('nextlibrary','Untitled')})))return; api('DELETE','/pages/'+pid).catch(apiErr); f.coll.pages=f.coll.pages.filter(x=>x.id!==pid); if(curPage===pid)curPage=f.coll.pages[0]?.id||null; delete reads[pid]; renderTree(el('kx-search').value);renderViewer();renderRecs();toast('Sayfa silindi'); }}
+    {icon:'🗑️',label:t('nextlibrary','Delete'),danger:true,fn:()=>{
+      // Kart alt ağacıyla birlikte gider → kaç kartın gideceğini önce söyle.
+      const doomed=subtreeOf(f.coll,f.page);
+      const msg=doomed.length>1
+        ? t('nextlibrary','Delete "{title}" and the {count} cards inside it? They go to the trash bin together.',{title:f.page.title||t('nextlibrary','Untitled'),count:doomed.length-1})
+        : t('nextlibrary','Delete the page "{title}"? This cannot be undone.',{title:f.page.title||t('nextlibrary','Untitled')});
+      if(!confirm(msg))return;
+      api('DELETE','/pages/'+pid).catch(apiErr);
+      const gone=new Set(doomed.map(x=>x.id));
+      f.coll.pages=f.coll.pages.filter(x=>!gone.has(x.id));
+      gone.forEach(id=>{ delete reads[id]; openPages.delete(id); });
+      if(gone.has(curPage))curPage=null;
+      renderTree(el('kx-search').value);renderViewer();renderRecs();
+      toast(doomed.length>1?t('nextlibrary','{count} cards moved to the trash bin',{count:doomed.length}):'Sayfa silindi');
+    }}
   ]);
 }
 function collActions(c,anchor){
   openMenu(anchor,[
     {icon:'✏️',label:t('nextlibrary','Rename'),fn:()=>{const v=prompt(t('nextlibrary','New collection name:'),c.name);if(v&&v.trim()){c.name=v.trim();api('PUT','/collections/'+c.id,{name:c.name}).catch(apiErr);renderTree(el('kx-search').value);renderViewer();}}},
-    {icon:'😀',label:t('nextlibrary','Change icon'),fn:()=>openEmoji(anchor,e=>{c.emoji=e;api('PUT','/collections/'+c.id,{emoji:e}).catch(apiErr);renderTree(el('kx-search').value);})},
+    {icon:'😀',label:t('nextlibrary','Change icon'),fn:()=>openEmoji(anchor,(e,x)=>{
+      if(x){ c.icon=x.icon; api('PUT','/collections/'+c.id,{icon:x.icon}).catch(apiErr); }
+      else { c.emoji=e; c.icon=''; api('PUT','/collections/'+c.id,{emoji:e,icon:''}).catch(apiErr); }
+      renderTree(el('kx-search').value); renderViewer();
+    },{collectionId:c.id,hasIcon:!!c.icon})},
     {icon:'👥',label:t('nextlibrary','Members and visibility'),fn:()=>openManageMembers(c)},
     {icon:c.visibility==='private'?'🌐':'🔒',label:c.visibility==='private'?t('nextlibrary','Make public'):t('nextlibrary','Make private'),fn:()=>{const nv=c.visibility==='private'?'public':'private';c.visibility=nv;api('PUT','/collections/'+c.id,{visibility:nv}).catch(apiErr);renderTree(el('kx-search').value);renderViewer();toast(nv==='private'?t('nextlibrary','Collection is now private'):t('nextlibrary','Collection is now public'));}},
     {sep:true},
@@ -1156,33 +1568,116 @@ function collActions(c,anchor){
 }
 
 /* -------- Yeni koleksiyon + üye ekle -------- */
-// pendingMembers: Map(principal id → 'editor'|'reader'); mVisibility: 'public'|'private'
-let newEmojiVal='📘', pendingMembers=new Map(), membersMode='create', manageColl=null, memberQ='', mVisibility='public';
+// pendingMembers: Map(principal id → rol). Rol arayüzden SEÇİLMEZ (yetkiyi etkilemiyor,
+// bkz. renderMemberChips) — var olan kayıtların rolü olduğu gibi korunsun diye Map kaldı;
+// yeni üye 'editor' olarak eklenir. mVisibility: 'public'|'private'
+let newEmojiVal='📘', newIconVal='', pendingMembers=new Map(), membersMode='create', manageColl=null, memberQ='', mVisibility='public';
 
-function addPageInputRow(title='',emoji='📄'){
+/* Yeni koleksiyon modalındaki kart satırları — iç içe.
+   Her satır kendi kimliğini (rid) ve üstünün kimliğini (parent) taşır; ağaç DOM'dan
+   bu iki alanla kurulur. Satırlar hep "üstünün alt ağacının sonuna" eklenir, böylece
+   ekrandaki sıra ile gerçek hiyerarşi aynı kalır. Derinlik sınırı yok. */
+let rowSeq=0;
+// Bir satırın alt ağacındaki SON satır (yeni çocuğun nereye ekleneceğini bulmak için)
+function lastRowOfSubtree(container,rid){
+  const rows=[...container.querySelectorAll('.page-field-row')];
+  const i=rows.findIndex(r=>r.dataset.rid===rid);
+  if(i<0)return null;
+  const base=Number(rows[i].dataset.depth||0);
+  let last=rows[i];
+  for(let j=i+1;j<rows.length;j++){
+    if(Number(rows[j].dataset.depth||0)>base)last=rows[j]; else break;
+  }
+  return last;
+}
+function addPageInputRow(title='',emoji='📄',parentRid=''){
   const container=el('newPagesContainer'); if(!container)return;
+  const rid='r'+(++rowSeq);
+  let depth=0;
+  if(parentRid){
+    const pr=container.querySelector('.page-field-row[data-rid="'+parentRid+'"]');
+    depth=pr?Number(pr.dataset.depth||0)+1:0;
+  }
   const row=document.createElement('div');
   row.className='field page-field-row';
+  row.dataset.rid=rid; row.dataset.parent=parentRid; row.dataset.depth=String(depth);
   row.style.margin='8px 0';
+  row.style.marginLeft=(depth*20)+'px';
+  row.dataset.kind='page';
   row.innerHTML=`
+    ${depth?'<span style="color:var(--ink-faint);font-size:12px;padding-right:2px">↳</span>':''}
     <button class="ep page-emoji-btn" type="button">${emoji}</button>
     <input class="page-title-input" placeholder="${esc(t('nextlibrary','Enter a page title …'))}" style="flex:1; border:none; outline:none; background:transparent; color:var(--ink); font-size:14px;" value="${esc(title)}" />
+    <button class="page-kind-btn" type="button" style="border:1px solid var(--line); background:transparent; cursor:pointer; color:var(--ink-soft); font-size:11.5px; font-weight:600; padding:3px 8px; border-radius:8px; white-space:nowrap;"></button>
+    <button class="page-child-btn" type="button" title="${esc(t('nextlibrary','Add a card inside'))}" style="border:none; background:transparent; cursor:pointer; color:var(--ink-faint); font-size:15px; padding:0 4px;">＋</button>
     <button class="page-remove-btn" type="button" style="border:none; background:transparent; cursor:pointer; color:var(--ink-faint); font-size:16px; padding:0 4px;">✕</button>
   `;
   const emoBtn=row.querySelector('.page-emoji-btn');
-  emoBtn.onclick=()=>openEmoji(emoBtn,e=>{emoBtn.textContent=e;});
-  row.querySelector('.page-remove-btn').onclick=()=>{
-    if(container.querySelectorAll('.page-field-row').length>1){
-      row.remove();
-    }else{
-      toast('En az bir sayfa eklemelisiniz');
-    }
+  emoBtn.onclick=()=>openEmoji(emoBtn,(e,x)=>{
+    if(x){ row.dataset.icon=x.icon||''; emoBtn.innerHTML=x.icon?`<img class="kx-ico" src="${esc(iconURL(x.icon,0))}" alt="" style="width:18px;height:18px;object-fit:contain;border-radius:4px">`:'📄'; }
+    else { row.dataset.icon=''; emoBtn.textContent=e; }
+  },{collectionId:0,hasIcon:!!row.dataset.icon});
+  // Tür seçici: 📄 Sayfa (yazı yazılır) ↔ 📁 Bölüm (yalnızca alt kartları gruplar).
+  // Simge kullanıcı elle değiştirmediyse türle birlikte gider (📄 ↔ 📁).
+  const kindBtn=row.querySelector('.page-kind-btn');
+  const paintKind=()=>{
+    const isFolder=row.dataset.kind==='folder';
+    kindBtn.textContent=isFolder?'📁 '+t('nextlibrary','Section'):'📄 '+t('nextlibrary','Page');
+    kindBtn.title=isFolder
+      ? t('nextlibrary','Section: groups other cards, has no text of its own. Click to make it a page.')
+      : t('nextlibrary','Page: a card you write in. Click to make it a section.');
   };
-  container.appendChild(row);
+  kindBtn.onclick=()=>{
+    const wasFolder=row.dataset.kind==='folder';
+    row.dataset.kind=wasFolder?'page':'folder';
+    const cur=emoBtn.textContent;
+    if(cur==='📄'||cur==='📁')emoBtn.textContent=wasFolder?'📄':'📁';
+    paintKind();
+  };
+  paintKind();
+  row.querySelector('.page-child-btn').onclick=()=>{
+    const created=addPageInputRow('','📄',rid);
+    if(created)created.querySelector('.page-title-input').focus();
+  };
+  row.querySelector('.page-remove-btn').onclick=()=>{
+    const rows=[...container.querySelectorAll('.page-field-row')];
+    // Satır silinince altındakiler sahipsiz kalmasın → alt ağacıyla birlikte gider
+    const i=rows.indexOf(row); const base=Number(row.dataset.depth||0);
+    const doomed=[row];
+    for(let j=i+1;j<rows.length;j++){ if(Number(rows[j].dataset.depth||0)>base)doomed.push(rows[j]); else break; }
+    if(rows.length-doomed.length<1){ toast('En az bir sayfa eklemelisiniz'); return; }
+    doomed.forEach(r=>r.remove());
+  };
+  // Üstü varsa onun alt ağacının hemen ardına, yoksa listenin sonuna
+  const anchor=parentRid?lastRowOfSubtree(container,parentRid):null;
+  if(anchor&&anchor.nextSibling)container.insertBefore(row,anchor.nextSibling);
+  else container.appendChild(row);
+  return row;
+}
+// Modaldaki düz satır listesini sunucunun beklediği ağaca çevirir
+function collectPageTree(){
+  const container=el('newPagesContainer'); if(!container)return [];
+  const emptyHtml=`<p>${esc(t('nextlibrary','This page is empty. Press Edit to start writing.'))}</p>`;
+  const byRid={}; const roots=[];
+  [...container.querySelectorAll('.page-field-row')].forEach(row=>{
+    const kind=row.dataset.kind==='folder'?'folder':'page';
+    const node={
+      kind:kind,
+      icon:row.dataset.icon||'',
+      emoji:row.dataset.icon?'📄':row.querySelector('.page-emoji-btn').textContent,
+      title:row.querySelector('.page-title-input').value.trim(),
+      html:kind==='folder'?'':emptyHtml,   // bölümün kendi yazısı olmaz
+      children:[]
+    };
+    byRid[row.dataset.rid]=node;
+    const par=row.dataset.parent;
+    if(par&&byRid[par])byRid[par].children.push(node); else roots.push(node);
+  });
+  return roots;
 }
 
 el('newCollBtn').onclick=()=>{
-  membersMode='create'; el('newName').value=''; newEmojiVal='📘'; el('newEmoji').textContent='📘';
+  membersMode='create'; el('newName').value=''; newEmojiVal='📘'; newIconVal=''; el('newEmoji').textContent='📘';
   pendingMembers=new Map(); mVisibility='public'; renderNVis();
   const container=el('newPagesContainer');
   if(container){
@@ -1202,7 +1697,10 @@ function renderNVis(){
     : '🌐 '+t('nextlibrary','Public: everyone signed in can read it. You do not need to add members.');
   const btn=el('toMembers'); if(btn)btn.textContent=mVisibility==='private'?t('nextlibrary','Choose members')+' →':t('nextlibrary','Create');
 }
-el('newEmoji').onclick=()=>openEmoji(el('newEmoji'),e=>{newEmojiVal=e;el('newEmoji').textContent=e;});
+el('newEmoji').onclick=()=>openEmoji(el('newEmoji'),(e,x)=>{
+  if(x){ newIconVal=x.icon||''; el('newEmoji').innerHTML=newIconVal?`<img class="kx-ico" src="${esc(iconURL(newIconVal,0))}" alt="" style="width:20px;height:20px;object-fit:contain;border-radius:4px">`:'📘'; }
+  else { newIconVal=''; newEmojiVal=e; el('newEmoji').textContent=e; }
+},{collectionId:0,hasIcon:!!newIconVal});
 if(el('addPageFieldBtn'))el('addPageFieldBtn').onclick=()=>addPageInputRow();
 
 el('toMembers').onclick=()=>{
@@ -1240,23 +1738,16 @@ el('createColl').onclick=()=>{
 function createCollection(){
   const name=el('newName').value.trim();if(!name)return;
 
-  const pages=[];
-  const rows=[...el('newPagesContainer').querySelectorAll('.page-field-row')];
-  rows.forEach(row=>{
-    const emoji=row.querySelector('.page-emoji-btn').textContent;
-    const title=row.querySelector('.page-title-input').value.trim();
-    pages.push({
-      emoji:emoji,
-      title:title,
-      html:`<p>${esc(t('nextlibrary','This page is empty. Press Edit to start writing.'))}</p>`
-    });
-  });
+  const pages=collectPageTree();   // iç içe: {emoji,title,html,children:[…]}
 
-  api('POST','/collections',{name,emoji:newEmojiVal,visibility:mVisibility,members:toMembersPayload(pendingMembers),pages})
+  api('POST','/collections',{name,emoji:newEmojiVal,icon:newIconVal,visibility:mVisibility,members:toMembersPayload(pendingMembers),pages})
     .then(nc=>{
-      const mapped=mapColl(nc); colls.push(mapped); hide('mdMembers'); hide('mdNew'); openColls.add(mapped.id);
-      if(mapped.pages[0])openPage(mapped.pages[0].id,false); else openCollection(mapped.id);
-      toast(pendingMembers.size?t('nextlibrary','"{name}" created · {count} members',{name:name,count:pendingMembers.size}):t('nextlibrary','"{name}" created',{name:name}));
+      // Koleksiyon sunucuda oluştu; buradan sonrası arayüz çizimi (bkz. addPage).
+      try{
+        const mapped=mapColl(nc); colls.push(mapped); hide('mdMembers'); hide('mdNew'); openColls.add(mapped.id);
+        if(mapped.pages[0])openPage(mapped.pages[0].id,false); else openCollection(mapped.id);
+        toast(pendingMembers.size?t('nextlibrary','"{name}" created · {count} members',{name:name,count:pendingMembers.size}):t('nextlibrary','"{name}" created',{name:name}));
+      }catch(err){ try{console.error('[NextLibrary render]',err);}catch(_){} }
     }).catch(apiErr);
 };
 let memberResults={users:[],groups:[]}, membersLoading=false;
@@ -1279,13 +1770,17 @@ function renderVisibility(){
   ROOT.querySelectorAll('#mVis .mvis-btn').forEach(b=>b.classList.toggle('active',b.dataset.vis===mVisibility));
   const hint=el('mVisHint');
   if(hint)hint.textContent=mVisibility==='private'
-    ? '🔒 '+t('nextlibrary','Private: only the members below can see it. Editors can write, readers can only read.')
-    : '🌐 '+t('nextlibrary','Public: everyone signed in can read it; the editors below can write.');
+    ? '🔒 '+t('nextlibrary','Private: only the members below can see it. Writing is administrator-only.')
+    : '🌐 '+t('nextlibrary','Public: everyone signed in can read it. Writing is administrator-only.');
 }
+/* Üyelik = "bu özel koleksiyonu KİM GÖREBİLİR". Yazma yetkisi değil.
+   Buradaki editör/okuyucu düğmesi kaldırıldı: rol hiçbir yetkiyi etkilemiyordu
+   (sunucuda canEdit() yalnızca isAdmin'e bakar), yani kullanıcıya var olmayan bir
+   ayrım vaat ediyordu. Rol alanı API/DB'de 'editor' varsayılanıyla duruyor —
+   şema değişmesin ve eski istemciler bozulmasın diye. */
 function renderMemberChips(){
-  el('mChips').innerHTML=[...pendingMembers].map(([id,role])=>{const nm=pName(id);const col=pColor(id);const rd=role==='reader';return `<span class="mchip"><span class="av" style="background:${col.c};color:${col.t}">${esc((nm[0]||'?').toUpperCase())}</span>${esc(nm)}<button class="mrole" data-mrole="${esc(id)}" title="${esc(rd?t('nextlibrary','Reader (read only) — click to make editor'):t('nextlibrary','Editor (read and write) — click to make reader'))}">${rd?'👁':'✏️'}</button><button class="x" data-un="${esc(id)}">✕</button></span>`;}).join('');
+  el('mChips').innerHTML=[...pendingMembers].map(([id])=>{const nm=pName(id);const col=pColor(id);return `<span class="mchip"><span class="av" style="background:${col.c};color:${col.t}">${esc((nm[0]||'?').toUpperCase())}</span>${esc(nm)}<button class="x" data-un="${esc(id)}">✕</button></span>`;}).join('');
   el('mChips').querySelectorAll('[data-un]').forEach(b=>b.onclick=()=>{pendingMembers.delete(b.dataset.un);renderMemberChips();renderMemberResults();updateMemberFooter();});
-  el('mChips').querySelectorAll('[data-mrole]').forEach(b=>b.onclick=()=>{const id=b.dataset.mrole;pendingMembers.set(id,pendingMembers.get(id)==='reader'?'editor':'reader');renderMemberChips();});
 }
 function updateMemberFooter(){
   if(membersMode==='manage'){ el('createColl').textContent=t('nextlibrary','Save'); el('membersBack').textContent=t('nextlibrary','Close'); }
@@ -1308,7 +1803,61 @@ function renderMembers(){
 /* -------- Emoji -------- */
 const EMOJIS=['📄','📘','📕','📗','📙','📓','🗂️','⭐','🔥','💡','🚀','🎯','✅','📌','💬','🔒','🌍','📊','🧠','⚙️','🎓','❤️','😀','😎','👍','🎉','🌱','☁️','💰','🔑','🛡️','📈','🧩','🔗','📝','🤖','✍️','🔐','🧭','📔'];
 let emojiCb=null;
-function openEmoji(anchor,cb){ emojiCb=cb;const pop=el('emojiPop');pop.innerHTML='';EMOJIS.forEach(e=>{const b=document.createElement('button');b.textContent=e;b.onclick=()=>{emojiCb(e);pop.classList.remove('show')};pop.appendChild(b);});const r=anchor.getBoundingClientRect();pop.style.left=Math.min(r.left,innerWidth-330)+'px';pop.style.top=(r.bottom+6)+'px';pop.classList.add('show'); }
+/* Küçük çizgi ikonlar — emoji yerine (emoji simgeler işletim sistemine göre değişiyor
+   ve düğme içinde orantısız duruyordu). currentColor kullanır, temaya uyar. */
+const SVG_IMAGE='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15.5L16 10.5 5.5 21"/></svg>';
+const SVG_UNDO='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-2"/></svg>';
+const SVG_PAPERCLIP='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 1 1 4.95 4.95l-9.2 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"/></svg>';
+
+/* Simge seçici. cb(emoji) emoji seçilince, cb(null,{icon:ad}) görsel yüklenince çağrılır;
+   cb(null,{icon:''}) ise yüklenen görsel kaldırılıp emojiye dönülür. collectionId
+   yüklemenin hangi koleksiyona ait olduğunu söyler; yoksa 0 (henüz oluşturulmamış
+   koleksiyonun simgesi) gönderilir. */
+function openEmoji(anchor,cb,opts){
+  opts=opts||{};
+  emojiCb=cb;
+  const pop=el('emojiPop');pop.innerHTML='';
+  if(opts.upload!==false){
+    const bar=document.createElement('div'); bar.className='emoji-tools';
+    const up=document.createElement('button'); up.className='emoji-up';
+    up.innerHTML=SVG_IMAGE+'<span>'+esc(t('nextlibrary','Image'))+'</span>';
+    up.title=t('nextlibrary','Use your own picture as the icon');
+    up.onclick=()=>{ pop.classList.remove('show'); pickIconFile(opts.collectionId||0,name=>cb(null,{icon:name})); };
+    bar.appendChild(up);
+    if(opts.hasIcon){
+      const rm=document.createElement('button'); rm.className='emoji-up';
+      rm.innerHTML=SVG_UNDO+'<span>'+esc(t('nextlibrary','Emoji'))+'</span>';
+      rm.title=t('nextlibrary','Remove the picture and use an emoji again');
+      rm.onclick=()=>{ pop.classList.remove('show'); cb(null,{icon:''}); };
+      bar.appendChild(rm);
+    }
+    pop.appendChild(bar);
+  }
+  EMOJIS.forEach(e=>{const b=document.createElement('button');b.textContent=e;b.onclick=()=>{emojiCb(e);pop.classList.remove('show')};pop.appendChild(b);});
+  const r=anchor.getBoundingClientRect();pop.style.left=Math.min(r.left,innerWidth-330)+'px';pop.style.top=(r.bottom+6)+'px';pop.classList.add('show');
+}
+/* Simge dosyası seç → 128px'e küçült → sunucuya yükle → dosya adını geri ver.
+   Simgeler küçücük olduğu için sayfa gövdesine gömülen görsellerden ayrı tutulur. */
+function pickIconFile(collectionId,cb){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='image/png,image/jpeg,image/gif,image/webp';
+  inp.onchange=()=>{
+    const file=inp.files&&inp.files[0]; if(!file)return;
+    downscaleImage(file,128,dataUrl=>{
+      toast(t('nextlibrary','Uploading image …'));
+      api('POST','/upload',{collectionId:collectionId||0,data:dataUrl})
+        .then(r=>{ if(r&&r.name)cb(r.name); else toast(t('nextlibrary','Could not upload the image')); })
+        .catch(apiErr);
+    });
+  };
+  inp.click();
+}
+// Simge çizimi: yüklenmiş görsel varsa onu, yoksa emojiyi göster.
+function iconURL(icon,collId){ return API_BASE+'/media/'+encodeURIComponent(collId||0)+'/'+encodeURIComponent(icon); }
+function iconHTML(obj,collId,size){
+  if(obj&&obj.icon)return `<img class="kx-ico" src="${esc(iconURL(obj.icon,collId))}" alt="" style="width:${size||18}px;height:${size||18}px;object-fit:contain;border-radius:4px;vertical-align:middle">`;
+  return (obj&&obj.emoji)||'📄';
+}
 document.addEventListener('click',e=>{if(!e.target.closest('#emojiPop')&&!e.target.closest('[data-cmd=emoji]')&&!e.target.closest('#docEmoji')&&!e.target.closest('#newEmoji')&&!e.target.closest('.page-emoji-btn')&&!e.target.closest('.ctx-item'))el('emojiPop').classList.remove('show');});
 document.addEventListener('click',e=>{const m=el('ctxMenu');if(m&&!e.target.closest('#ctxMenu')&&!e.target.closest('[data-pa]')&&!e.target.closest('[data-ca]'))m.classList.remove('show');});
 
@@ -1321,7 +1870,7 @@ el('kx-search').addEventListener('input',e=>{
   if(!q){res.classList.remove('show');return;}
   const hits=allPages().filter(x=>(x.p.title+' '+stripHtml(x.p.html)).toLowerCase().includes(q)).slice(0,7);
   if(!hits.length){res.innerHTML='<div class="result"><span class="r-sub">'+esc(t('nextlibrary','No results'))+'</span></div>';res.classList.add('show');return;}
-  res.innerHTML=hits.map(x=>`<div class="result" data-p="${x.p.id}"><span class="r-em">${x.p.emoji}</span><span>${esc(x.p.title||t('nextlibrary','Untitled'))}<br><span class="r-sub">${esc(x.c.name)}</span></span></div>`).join('');
+  res.innerHTML=hits.map(x=>`<div class="result" data-p="${x.p.id}"><span class="r-em">${iconHTML(x.p,x.c.id,16)}</span><span>${esc(x.p.title||t('nextlibrary','Untitled'))}<br><span class="r-sub">${esc(x.c.name)}</span></span></div>`).join('');
   res.classList.add('show');
   res.querySelectorAll('.result').forEach(r=>r.onclick=()=>{openPage(r.dataset.p);res.classList.remove('show');el('kx-search').value='';renderTree('');});
 });
@@ -1350,7 +1899,13 @@ if(el('menuBtn'))el('menuBtn').onclick=()=>ROOT.classList.toggle('nav-open');
 if(el('navOvl'))el('navOvl').onclick=()=>ROOT.classList.remove('nav-open');
 
 /* -------- Rol önizleme -------- */
-function updateRoleBtn(){ el('roleBtn').textContent=previewAsVisitor?'👁 '+t('nextlibrary','Visitor'):'✏️ '+t('nextlibrary','Editor'); }
+// Editör ↔ ziyaretçi önizlemesi yalnızca yazabilenler için anlamlı: yazamayan hesap
+// zaten ziyaretçi durumundadır, düğmeyi görmesi kafa karıştırır.
+function updateRoleBtn(){
+  const b=el('roleBtn'); if(!b)return;
+  b.style.display=canCreate?'':'none';
+  b.textContent=previewAsVisitor?'👁 '+t('nextlibrary','Visitor'):'✏️ '+t('nextlibrary','Editor');
+}
 el('roleBtn').onclick=()=>{ previewAsVisitor=!previewAsVisitor; LS.set('previewAsVisitor',previewAsVisitor); if(previewAsVisitor)editing=false; updateRoleBtn(); renderTree(el('kx-search').value); renderViewer(); renderRecs(); toast(previewAsVisitor?t('nextlibrary','Visitor view — read only'):t('nextlibrary','Back to editor mode')); };
 updateRoleBtn();
 
@@ -1358,18 +1913,23 @@ updateRoleBtn();
 function show(id){el(id).classList.add('show');} function hide(id){el(id).classList.remove('show');}
 ROOT.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>hide(b.dataset.close));
 ROOT.querySelectorAll('.backdrop').forEach(bd=>bd.addEventListener('mousedown',e=>{if(e.target===bd)hide(bd.id);}));
-function persistState(){LS.set('curColl',curColl);LS.set('curPage',curPage);LS.set('openColls',[...openColls]);}
+function persistState(){LS.set('curColl',curColl);LS.set('curPage',curPage);LS.set('openColls',[...openColls]);LS.set('openPages',[...openPages]);}
 let toastT;function toast(t){const e=el('toast');e.textContent=t;e.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>e.classList.remove('show'),2000);}
 
 
 
 /* -------- Başlat -------- */
-el('viewer').innerHTML=`<div class="rail-empty" style="padding:48px 20px;text-align:center">${esc(t('nextlibrary','Loading …'))}</div>`;
+{ const v0=viewer(); if(v0)v0.innerHTML=`<div class="rail-empty" style="padding:48px 20px;text-align:center">${esc(t('nextlibrary','Loading …'))}</div>`; }
 loadState(true).then(()=>{
+  // Kimlik ancak state ile kesinleşir (OC.getCurrentUser okunamamış olabilir) → hesap
+  // değişimi kontrolünü gerçek kimlikle şimdi yap.
+  scopeViewToUser();
   // Tarayıcıda saklı görünüm durumu artık sunucu id'leriyle eşleşmiyorsa ana ekrana düş
   if(curColl&&!getColl(curColl))curColl=null;
   if(curPage&&!findPage(curPage))curPage=null;
   if(curColl)openColls.add(curColl);
+  // canCreate ancak state geldikten sonra bilinir → yazma yetkisine bağlı düğmeleri şimdi tazele
+  updateRoleBtn();
   renderTree(); renderViewer(); renderRecs(); updateBackBtnVisibility();
 });
 setInterval(updateTreeTimes,60000); // "x dk önce" etiketlerini canlı tut

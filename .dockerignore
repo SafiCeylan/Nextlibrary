@@ -1,0 +1,8 @@
+# Docker build bağlamına girmeyecekler (imaja sızmasın)
+.git
+*.tar.gz
+*.tar.gz.sig
+screenshots
+pictures
+dev.html
+docker/.env

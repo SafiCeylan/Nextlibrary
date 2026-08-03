@@ -10,6 +10,8 @@
 *.pem
 .env
 .env.*
+# …but the template carries no secrets and KURULUM.md tells you to copy it.
+!.env.example
 
 # Build artifacts
 *.tar.gz

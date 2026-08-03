@@ -16,7 +16,7 @@ when, so progress is visible at a glance.
 - **Collections and pages** — a browsable tree on the left, a reading canvas in the middle, related pages on the right.
 - **Reading progress** — mark pages as read; progress bars and badges show what is left.
 - **Rich editor** — headings, lists, quotes, code blocks, colours, highlights, callouts, images and video embeds.
-- **Roles** — owners and editors write, readers only read. Collections can be public to the instance or private to their members.
+- **Roles** — writing is restricted to Nextcloud administrators; everyone else reads. Collections can be public to the instance or private to their members.
 - **Trash bin** — deleted collections and pages can be restored.
 - **Dark mode** and full-text search across pages.
     ]]></description>
@@ -30,11 +30,11 @@ tek bakışta görünür.
 - **Koleksiyonlar ve sayfalar** — solda gezilebilir ağaç, ortada okuma kanvası, sağda ilgili sayfalar.
 - **Okuma takibi** — sayfaları okundu işaretleyin; ilerleme çubukları ve rozetler kalanı gösterir.
 - **Zengin düzenleyici** — başlıklar, listeler, alıntılar, kod blokları, renkler, vurgular, bilgi notları, görseller ve video gömme.
-- **Roller** — sahip ve editörler yazar, okuyucular yalnızca okur. Koleksiyonlar sunucuya açık ya da üyelerine özel olabilir.
+- **Roller** — yazma yetkisi Nextcloud yöneticilerine aittir; diğer herkes okur. Koleksiyonlar sunucuya açık ya da üyelerine özel olabilir.
 - **Çöp kutusu** — silinen koleksiyon ve sayfalar geri yüklenebilir.
 - **Karanlık mod** ve sayfalarda tam metin arama.
     ]]></description>
-    <version>1.0.4</version>
+    <version>1.5.0</version>
     <licence>agpl</licence>
     <author mail="saficeylan89@gmail.com">Mehmet Safi Ceylan</author>
     <namespace>NextLibrary</namespace>
@@ -46,9 +46,13 @@ tek bakışta görünür.
     <screenshot>https://raw.githubusercontent.com/SafiCeylan/Nextlibrary/main/screenshots/2-reading.png</screenshot>
     <screenshot>https://raw.githubusercontent.com/SafiCeylan/Nextlibrary/main/screenshots/3-new-collection.png</screenshot>
     <dependencies>
-        <php min-version="8.0" max-version="8.3"/>
-        <nextcloud min-version="28" max-version="31"/>
+        <php min-version="8.0" max-version="8.4"/>
+        <nextcloud min-version="28" max-version="34"/>
     </dependencies>
+    <!-- Yetim medya toplayıcısı. XSD sırası: dependencies → background-jobs → navigations. -->
+    <background-jobs>
+        <job>OCA\NextLibrary\BackgroundJob\CleanupMediaJob</job>
+    </background-jobs>
     <navigations>
         <navigation>
             <!-- Translated via l10n/*, not a lang attribute: the XSD rejects lang here. -->

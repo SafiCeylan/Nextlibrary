@@ -9,6 +9,12 @@ use OCP\AppFramework\Db\Entity;
 /**
  * @method int getCollectionId()
  * @method void setCollectionId(int $collectionId)
+ * @method int getParentId()
+ * @method void setParentId(int $parentId)
+ * @method string|null getKind()
+ * @method void setKind(?string $kind)
+ * @method string|null getIcon()
+ * @method void setIcon(?string $icon)
  * @method string|null getEmoji()
  * @method void setEmoji(?string $emoji)
  * @method string|null getTitle()
@@ -26,6 +32,12 @@ use OCP\AppFramework\Db\Entity;
  */
 class Page extends Entity implements JsonSerializable {
     protected $collectionId;
+    /** 0 = koleksiyonun kökü; aksi halde üst sayfanın id'si (aynı koleksiyon içinde). */
+    protected $parentId;
+    /** 'page' = yazı sayfası, 'folder' = bölüm (yalnızca alt kartları gruplar). */
+    protected $kind;
+    /** Yüklenmiş simge dosyasının adı; boşsa emoji kullanılır. */
+    protected $icon;
     protected $emoji;
     protected $title;
     protected $html;
@@ -36,6 +48,7 @@ class Page extends Entity implements JsonSerializable {
 
     public function __construct() {
         $this->addType('collectionId', 'integer');
+        $this->addType('parentId', 'integer');
         $this->addType('sort', 'integer');
         $this->addType('createdAt', 'integer');
         $this->addType('updatedAt', 'integer');
@@ -46,7 +59,10 @@ class Page extends Entity implements JsonSerializable {
         return [
             'id' => (int)$this->id,
             'collectionId' => (int)$this->collectionId,
+            'parentId' => (int)$this->parentId,
+            'kind' => $this->kind ?: 'page',
             'emoji' => $this->emoji,
+            'icon' => $this->icon ?: '',
             'title' => $this->title,
             'html' => $this->html,
             'sort' => (int)$this->sort,

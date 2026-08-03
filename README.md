@@ -55,6 +55,19 @@ tar --exclude-vcs \
 `t()`/`n()` translation helpers and the REST API). Serve the folder with any static
 server and open `dev.html`. It is a development aid only and is excluded from release builds.
 
+### Tests
+
+`tests/run.php` needs no Composer, no PHPUnit and no Nextcloud — only PHP with `ext-dom`:
+
+```bash
+php tests/run.php
+```
+
+It covers the HTML sanitiser and checks that the server-side whitelist
+(`lib/Service/HtmlSanitizer.php`) still matches the client-side one (`js/app.js`). Those two
+lists must never drift apart, so the check is mechanical rather than a comment. Tests are
+excluded from release builds.
+
 ## License
 
 [GNU AGPL v3](LICENSE) © Mehmet Safi Ceylan

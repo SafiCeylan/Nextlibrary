@@ -11,6 +11,8 @@ use OCP\AppFramework\Db\Entity;
  * @method void setOwnerUid(string $ownerUid)
  * @method string|null getEmoji()
  * @method void setEmoji(?string $emoji)
+ * @method string|null getIcon()
+ * @method void setIcon(?string $icon)
  * @method string getName()
  * @method void setName(string $name)
  * @method int getCreatedAt()
@@ -25,6 +27,8 @@ use OCP\AppFramework\Db\Entity;
 class Collection extends Entity implements JsonSerializable {
     protected $ownerUid;
     protected $emoji;
+    /** Yüklenmiş simge dosyasının adı; boşsa emoji kullanılır. */
+    protected $icon;
     protected $name;
     protected $createdAt;
     protected $updatedAt;
@@ -42,6 +46,7 @@ class Collection extends Entity implements JsonSerializable {
             'id' => (int)$this->id,
             'owner' => $this->ownerUid,
             'emoji' => $this->emoji,
+            'icon' => $this->icon ?: '',
             'name' => $this->name,
             'visibility' => $this->visibility ?: 'public',
             'createdAt' => (int)$this->createdAt,

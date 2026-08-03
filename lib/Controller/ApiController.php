@@ -16,6 +16,9 @@ use OCA\NextLibrary\Service\HtmlSanitizer;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http;
+use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
+use OCP\AppFramework\Http\Attribute\UserRateLimit;
 use OCP\AppFramework\Http\DataDisplayResponse;
 use OCP\AppFramework\Http\JSONResponse;
 use OCP\Files\IAppData;
@@ -175,10 +178,8 @@ class ApiController extends Controller {
         return new JSONResponse(['error' => 'forbidden'], Http::STATUS_FORBIDDEN);
     }
 
-    /**
-     * @NoAdminRequired
-     * @NoCSRFRequired
-     */
+    #[NoAdminRequired]
+    #[NoCSRFRequired]
     public function state(): JSONResponse {
         $uid = $this->uid();
         if ($uid === '') {
@@ -224,6 +225,9 @@ class ApiController extends Controller {
 
         $respData = [
             'me' => ['id' => $uid, 'name' => $this->displayName()],
+            // Yazma yetkisi admin'e ait (canEdit). İstemci bunu bilmezse "Yeni koleksiyon"
+            // düğmesini herkese gösterir ve tıklayan kullanıcı yalnızca 403 görür.
+            'canCreate' => $this->groupManager->isAdmin($uid),
             'collections' => $collections,
             // syncAt daima sunucu saatinden verilir; istemci saatiyle karşılaştırma yapılırsa
             // saat kayması yüzünden delta'lar atlanabilir veya tekrarlanabilir.
@@ -245,9 +249,9 @@ class ApiController extends Controller {
     /**
      * Üye eklerken kullanılan canlı arama. Boş sorgu ilk sayfayı döndürür (picker
      * açılışta boş kalmasın). Sadece giriş yapmış kullanıcılar erişebilir.
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=60, period=60)
      */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 60, period: 60)]
     public function searchPrincipals(): JSONResponse {
         if ($this->uid() === '') {
             return new JSONResponse(['error' => 'unauthenticated'], Http::STATUS_UNAUTHORIZED);
@@ -300,24 +304,28 @@ class ApiController extends Controller {
     /**
      * Medya yükler: data:URL veya dosya yüklemesini çözer, koleksiyona ait appdata klasörüne yazar.
      * Yalnızca hedef koleksiyonu düzenleyebilenler yükleyebilir (collectionId zorunlu).
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=30, period=60)
      */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 30, period: 60)]
     public function upload(): JSONResponse {
         if ($this->uid() === '') {
             return new JSONResponse(['error' => 'unauthenticated'], Http::STATUS_UNAUTHORIZED);
         }
-        // Yetki: hedef koleksiyonu düzenleyebiliyor mu? (collectionId artık zorunlu)
+        // Yetki: hedef koleksiyonu düzenleyebiliyor mu?
+        // collectionId = 0 → simge yüklemesi: koleksiyon HENÜZ YOK (oluşturma modalında
+        // simge seçiliyor). Bu dosyalar ortak 'media_0' klasörüne yazılır ve giriş yapmış
+        // herkese servis edilir; yalnızca yazma yetkisi olanlar yükleyebilir.
         $collectionId = (int)$this->request->getParam('collectionId', 0);
-        if ($collectionId <= 0) {
-            return new JSONResponse(['error' => 'collection_required'], Http::STATUS_BAD_REQUEST);
-        }
-        try {
-            $c = $this->collections->find($collectionId);
-        } catch (DoesNotExistException $e) {
-            return $this->notFound();
-        }
-        if (!$this->canEdit($c)) {
+        if ($collectionId > 0) {
+            try {
+                $c = $this->collections->find($collectionId);
+            } catch (DoesNotExistException $e) {
+                return $this->notFound();
+            }
+            if (!$this->canEdit($c)) {
+                return $this->forbidden();
+            }
+        } elseif (!$this->groupManager->isAdmin($this->uid())) {
             return $this->forbidden();
         }
 
@@ -388,28 +396,42 @@ class ApiController extends Controller {
 
     /**
      * Koleksiyona ait görsel veya videoyu servis eder — YALNIZCA koleksiyonu okuyabilenlere.
-     * @NoAdminRequired
-     * @NoCSRFRequired
      */
+    #[NoAdminRequired]
+    #[NoCSRFRequired]
     public function media(int $cid, string $name): DataDisplayResponse {
         // Yol geçişini engelle: yalnızca üretilen ad biçimi (hex.uzantı)
         if (!preg_match('/^[a-f0-9]{32}\.(png|jpg|gif|webp|mp4|webm|ogg|mov)$/', $name, $m)) {
             return new DataDisplayResponse('', Http::STATUS_NOT_FOUND);
         }
-        // Erişim: koleksiyonu okuma yetkisi (canRead)
-        try {
-            $c = $this->collections->find($cid);
-        } catch (DoesNotExistException $e) {
-            return new DataDisplayResponse('', Http::STATUS_NOT_FOUND);
-        }
-        if ($this->uid() === '' || !$this->canRead($c)) {
+        if ($this->uid() === '') {
             return new DataDisplayResponse('', Http::STATUS_FORBIDDEN);
+        }
+        // cid = 0 → koleksiyona bağlı olmayan simgeler (oluşturma sırasında yüklenenler).
+        // Giriş yapmış herkese açıktır; ad tahmin edilemez (32 hex) ve içerik yalnızca simgedir.
+        if ($cid > 0) {
+            try {
+                $c = $this->collections->find($cid);
+            } catch (DoesNotExistException $e) {
+                return new DataDisplayResponse('', Http::STATUS_NOT_FOUND);
+            }
+            if (!$this->canRead($c)) {
+                return new DataDisplayResponse('', Http::STATUS_FORBIDDEN);
+            }
         }
         try {
             $file = $this->collMediaFolder($cid)->getFile($name);
             $content = $file->getContent();
         } catch (NotFoundException $e) {
-            return new DataDisplayResponse('', Http::STATUS_NOT_FOUND);
+            // Koleksiyon HENÜZ YOKKEN seçilen simgeler ortak 'media_0' klasörüne yazılır
+            // (oluşturma modalı). Koleksiyon sonradan kendi id'siyle istediği için dosya
+            // kendi klasöründe bulunamaz → ortak klasöre düş.
+            try {
+                $file = $this->collMediaFolder(0)->getFile($name);
+                $content = $file->getContent();
+            } catch (NotFoundException $e2) {
+                return new DataDisplayResponse('', Http::STATUS_NOT_FOUND);
+            }
         }
         $extMime = [
             'png' => 'image/png', 
@@ -432,9 +454,9 @@ class ApiController extends Controller {
 
     /**
      * Yalnızca sunucu tamamen boşsa içe aktarır (tekrarlı import'u önler).
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=5, period=60)
      */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 5, period: 60)]
     public function import(): JSONResponse {
         $uid = $this->uid();
         if ($uid === '') {
@@ -458,6 +480,7 @@ class ApiController extends Controller {
             $c = new Collection();
             $c->setOwnerUid($uid); // içe aktaran kişi sahip olur
             $c->setEmoji((string)($col['emoji'] ?? '📘'));
+            $c->setIcon($this->normIcon($col['icon'] ?? ''));
             $c->setName((string)($col['name'] ?? 'Koleksiyon'));
             $c->setVisibility($this->normVisibility($col['visibility'] ?? 'public'));
             $c->setCreatedAt($this->now());
@@ -469,21 +492,7 @@ class ApiController extends Controller {
 
             $pages = $col['pages'] ?? [];
             if (is_array($pages)) {
-                $sort = 0;
-                foreach ($pages as $pg) {
-                    if (!is_array($pg)) {
-                        continue;
-                    }
-                    $p = new Page();
-                    $p->setCollectionId($cid);
-                    $p->setEmoji((string)($pg['emoji'] ?? '📄'));
-                    $p->setTitle((string)($pg['title'] ?? ''));
-                    $p->setHtml($this->sanitizer->clean((string)($pg['html'] ?? '')));
-                    $p->setSort($sort++);
-                    $p->setCreatedAt($this->now());
-                    $p->setUpdatedAt($this->now());
-                    $this->pages->insert($p);
-                }
+                $this->insertPageTree($cid, $pages);
             }
         }
         return $this->state();
@@ -491,10 +500,8 @@ class ApiController extends Controller {
 
     // -------- Koleksiyon yazma --------
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=20, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 20, period: 60)]
     public function createCollection(): JSONResponse {
         $uid = $this->uid();
         if ($uid === '') {
@@ -510,6 +517,7 @@ class ApiController extends Controller {
         $c = new Collection();
         $c->setOwnerUid($uid);
         $c->setEmoji((string)$this->request->getParam('emoji', '📘'));
+        $c->setIcon($this->normIcon($this->request->getParam('icon', '')));
         $c->setName($name);
         $c->setVisibility($this->normVisibility($this->request->getParam('visibility', 'public')));
         $c->setCreatedAt($this->now());
@@ -521,29 +529,13 @@ class ApiController extends Controller {
 
         $pages = $this->request->getParam('pages', []);
         if (is_array($pages)) {
-            $sort = 0;
-            foreach ($pages as $pg) {
-                if (!is_array($pg)) {
-                    continue;
-                }
-                $p = new Page();
-                $p->setCollectionId($cid);
-                $p->setEmoji((string)($pg['emoji'] ?? '📄'));
-                $p->setTitle((string)($pg['title'] ?? ''));
-                $p->setHtml($this->sanitizer->clean((string)($pg['html'] ?? '')));
-                $p->setSort($sort++);
-                $p->setCreatedAt($this->now());
-                $p->setUpdatedAt($this->now());
-                $this->pages->insert($p);
-            }
+            $this->insertPageTree($cid, $pages);
         }
         return new JSONResponse($this->collectionToArray($c));
     }
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=60, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 60, period: 60)]
     public function updateCollection(int $id): JSONResponse {
         try {
             $c = $this->collections->find($id);
@@ -554,10 +546,14 @@ class ApiController extends Controller {
             return $this->forbidden();
         }
         $emoji = $this->request->getParam('emoji', null);
+        $icon = $this->request->getParam('icon', null);
         $name = $this->request->getParam('name', null);
         $visibility = $this->request->getParam('visibility', null);
         if ($emoji !== null) {
             $c->setEmoji((string)$emoji);
+        }
+        if ($icon !== null) {
+            $c->setIcon($this->normIcon($icon));   // '' → simge kaldırılır, emoji geri gelir
         }
         if ($name !== null && trim((string)$name) !== '') {
             $c->setName(trim((string)$name));
@@ -570,10 +566,8 @@ class ApiController extends Controller {
         return new JSONResponse($this->collectionToArray($c));
     }
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=30, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 30, period: 60)]
     public function deleteCollection(int $id): JSONResponse {
         try {
             $c = $this->collections->find($id);
@@ -596,10 +590,8 @@ class ApiController extends Controller {
         return new JSONResponse(['ok' => true]);
     }
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=30, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 30, period: 60)]
     public function setMembers(int $id): JSONResponse {
         try {
             $c = $this->collections->find($id);
@@ -649,6 +641,52 @@ class ApiController extends Controller {
         }
     }
 
+    /**
+     * Koleksiyon oluşturulurken gelen sayfa ağacını yazar.
+     * Her düğüm: {emoji,title,html,children:[...]} — children özyinelemeli.
+     * Derinlik sınırı yok; yalnızca kendi kendini çağırma derinliği payload'a bağlı.
+     */
+    private function insertPageTree(int $collectionId, array $nodes, int $parentId = 0): void {
+        $sort = 0;
+        foreach ($nodes as $node) {
+            if (!is_array($node)) {
+                continue;
+            }
+            $p = new Page();
+            $p->setCollectionId($collectionId);
+            $p->setParentId($parentId);
+            $p->setKind($this->normKind($node['kind'] ?? 'page'));
+            $p->setEmoji((string)($node['emoji'] ?? '📄'));
+            $p->setIcon($this->normIcon($node['icon'] ?? ''));
+            $p->setTitle((string)($node['title'] ?? ''));
+            $p->setHtml($this->sanitizer->clean((string)($node['html'] ?? '')));
+            $p->setSort($sort++);
+            $p->setCreatedAt($this->now());
+            $p->setUpdatedAt($this->now());
+            $p = $this->pages->insert($p);
+
+            $children = $node['children'] ?? [];
+            if (is_array($children) && !empty($children)) {
+                $this->insertPageTree($collectionId, $children, (int)$p->getId());
+            }
+        }
+    }
+
+    /**
+     * Simge dosya adını doğrula. Yalnızca upload()'un ürettiği biçim kabul edilir
+     * (32 hex + görsel uzantısı); başka her şey boşa düşer → emoji kullanılır.
+     * Böylece bu alan bir yol/URL taşıyamaz.
+     */
+    private function normIcon($v): string {
+        $s = trim((string)$v);
+        return preg_match('/^[a-f0-9]{32}\.(png|jpg|gif|webp)$/', $s) ? $s : '';
+    }
+
+    /** Kart türünü doğrula ('page' | 'folder'). Tanınmayan değer sayfa sayılır. */
+    private function normKind($v): string {
+        return ((string)$v === 'folder') ? 'folder' : 'page';
+    }
+
     /** Görünürlük değerini doğrula ('public' | 'private'). */
     private function normVisibility($v): string {
         return ((string)$v === 'private') ? 'private' : 'public';
@@ -656,10 +694,8 @@ class ApiController extends Controller {
 
     // -------- Sayfa yazma --------
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=60, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 60, period: 60)]
     public function createPage(int $id): JSONResponse {
         try {
             $c = $this->collections->find($id);
@@ -669,14 +705,34 @@ class ApiController extends Controller {
         if (!$this->canEdit($c)) {
             return $this->forbidden();
         }
-        $existing = $this->pages->findByCollection($id);
+        // Üst kart: 0 = koleksiyonun kökü. Verildiyse AYNI koleksiyonda ve silinmemiş
+        // olmalı — aksi halde başka koleksiyonun ağacına dal eklenebilirdi.
+        $parentId = (int)$this->request->getParam('parentId', 0);
+        if ($parentId > 0) {
+            try {
+                $parent = $this->pages->find($parentId);
+            } catch (DoesNotExistException $e) {
+                return new JSONResponse(['error' => 'parent_not_found'], Http::STATUS_BAD_REQUEST);
+            }
+            if ((int)$parent->getCollectionId() !== $id) {
+                return new JSONResponse(['error' => 'parent_other_collection'], Http::STATUS_BAD_REQUEST);
+            }
+        } else {
+            $parentId = 0;
+        }
+        // Sıra numarası kardeşler arasında verilir (ağaçta her seviye kendi içinde sıralı).
         $maxSort = 0;
-        foreach ($existing as $p) {
-            $maxSort = max($maxSort, (int)$p->getSort());
+        foreach ($this->pages->findByCollection($id) as $p) {
+            if ((int)$p->getParentId() === $parentId) {
+                $maxSort = max($maxSort, (int)$p->getSort());
+            }
         }
         $p = new Page();
         $p->setCollectionId($id);
+        $p->setParentId($parentId);
+        $p->setKind($this->normKind($this->request->getParam('kind', 'page')));
         $p->setEmoji((string)$this->request->getParam('emoji', '📄'));
+        $p->setIcon($this->normIcon($this->request->getParam('icon', '')));
         $p->setTitle((string)$this->request->getParam('title', ''));
         $p->setHtml($this->sanitizer->clean((string)$this->request->getParam('html', '')));
         $p->setSort($maxSort + 1);
@@ -687,10 +743,8 @@ class ApiController extends Controller {
         return new JSONResponse($p->jsonSerialize());
     }
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=300, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 300, period: 60)]
     public function updatePage(int $id): JSONResponse {
         try {
             $p = $this->pages->find($id);
@@ -715,11 +769,15 @@ class ApiController extends Controller {
         }
 
         $emoji = $this->request->getParam('emoji', null);
+        $icon = $this->request->getParam('icon', null);
         $title = $this->request->getParam('title', null);
         $html = $this->request->getParam('html', null);
         $sort = $this->request->getParam('sort', null);
         if ($emoji !== null) {
             $p->setEmoji((string)$emoji);
+        }
+        if ($icon !== null) {
+            $p->setIcon($this->normIcon($icon));
         }
         if ($title !== null) {
             $p->setTitle((string)$title);
@@ -730,16 +788,20 @@ class ApiController extends Controller {
         if ($sort !== null) {
             $p->setSort((int)$sort);
         }
+        // Tür sonradan değiştirilebilir (sayfa ↔ bölüm). Yazı silinmez, yalnızca
+        // bölümde gösterilmez → geri çevrilince aynen döner.
+        $kind = $this->request->getParam('kind', null);
+        if ($kind !== null) {
+            $p->setKind($this->normKind($kind));
+        }
         $p->setUpdatedAt($this->now());
         $this->pages->update($p);
         $this->touchCollection((int)$p->getCollectionId());
         return new JSONResponse($p->jsonSerialize());
     }
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=60, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 60, period: 60)]
     public function deletePage(int $id): JSONResponse {
         try {
             $p = $this->pages->find($id);
@@ -750,18 +812,25 @@ class ApiController extends Controller {
         if (!$this->canEdit($c)) {
             return $this->forbidden();
         }
+        // Kart alt ağacıyla birlikte çöpe gider (alt kartlar sahipsiz kalmasın).
         $now = $this->now();
-        $p->setDeletedAt($now);
-        $p->setUpdatedAt($now);
-        $this->pages->update($p);
-        return new JSONResponse(['ok' => true]);
+        $all = $this->pages->findAllByCollection((int)$p->getCollectionId());
+        $subtree = PageMapper::subtree($all, (int)$p->getId());
+        foreach ($subtree as $node) {
+            if ((int)$node->getDeletedAt() > 0) {
+                continue;   // zaten çöpte olan dalın damgasını değiştirme
+            }
+            $node->setDeletedAt($now);
+            $node->setUpdatedAt($now);
+            $this->pages->update($node);
+        }
+        $this->touchCollection((int)$p->getCollectionId());
+        return new JSONResponse(['ok' => true, 'deleted' => count($subtree)]);
     }
 
     // -------- Çöp Kutusu Yönetimi --------
 
-    /**
-     * @NoAdminRequired
-     */
+    #[NoAdminRequired]
     public function trash(): JSONResponse {
         $uid = $this->uid();
         if ($uid === '') {
@@ -776,12 +845,8 @@ class ApiController extends Controller {
 
         $pages = [];
         $readableIds = array_map(function($c) { return (int)$c->getId(); }, $this->collections->findReadable($uid, $memberIds));
-        if (!empty($readableIds)) {
-            foreach ($readableIds as $cid) {
-                foreach ($this->pages->findDeletedPages($cid) as $p) {
-                    $pages[] = $p->jsonSerialize();
-                }
-            }
+        foreach ($this->pages->findDeletedByCollections($readableIds) as $p) {
+            $pages[] = $p->jsonSerialize();
         }
 
         return new JSONResponse([
@@ -790,10 +855,8 @@ class ApiController extends Controller {
         ]);
     }
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=30, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 30, period: 60)]
     public function restoreCollection(int $id): JSONResponse {
         $uid = $this->uid();
         if ($uid === '') {
@@ -822,10 +885,8 @@ class ApiController extends Controller {
         return new JSONResponse($this->collectionToArray($c));
     }
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=60, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 60, period: 60)]
     public function restorePage(int $id): JSONResponse {
         $uid = $this->uid();
         if ($uid === '') {
@@ -849,6 +910,29 @@ class ApiController extends Controller {
             $this->collections->update($c);
         }
 
+        // Kart alt ağacıyla birlikte geri gelir (birlikte gitmişlerdi).
+        $all = $this->pages->findAllByCollection((int)$p->getCollectionId());
+        foreach (PageMapper::subtree($all, (int)$p->getId()) as $node) {
+            $node->setDeletedAt(0);
+            $node->setUpdatedAt($now);
+            $this->pages->update($node);
+        }
+
+        // Üst kartı hâlâ çöpteyse kart sahipsiz kalırdı (hiçbir yerde görünmez) →
+        // koleksiyonun köküne alınır.
+        $parentId = (int)$p->getParentId();
+        if ($parentId > 0) {
+            $parentAlive = false;
+            foreach ($all as $cand) {
+                if ((int)$cand->getId() === $parentId && (int)$cand->getDeletedAt() === 0) {
+                    $parentAlive = true;
+                    break;
+                }
+            }
+            if (!$parentAlive) {
+                $p->setParentId(0);
+            }
+        }
         $p->setDeletedAt(0);
         $p->setUpdatedAt($now);
         $this->pages->update($p);
@@ -857,10 +941,8 @@ class ApiController extends Controller {
         return new JSONResponse($p->jsonSerialize());
     }
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=20, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 20, period: 60)]
     public function purgeCollection(int $id): JSONResponse {
         try {
             $c = $this->collections->findWithDeleted($id);
@@ -894,10 +976,8 @@ class ApiController extends Controller {
         return new JSONResponse(['ok' => true]);
     }
 
-    /**
-     * @NoAdminRequired
-     * @UserRateThrottle(limit=20, period=60)
-     */
+    #[NoAdminRequired]
+    #[UserRateLimit(limit: 20, period: 60)]
     public function purgePage(int $id): JSONResponse {
         try {
             $p = $this->pages->findWithDeleted($id);
@@ -909,17 +989,20 @@ class ApiController extends Controller {
             return $this->forbidden();
         }
 
-        $this->reads->deleteByPage($id);
-        $this->pages->delete($p);
+        // Alt ağaç birlikte kalıcı silinir; aksi halde erişilemeyen kayıtlar DB'de kalırdı.
+        $all = $this->pages->findAllByCollection((int)$p->getCollectionId());
+        $subtree = PageMapper::subtree($all, (int)$p->getId());
+        foreach ($subtree as $node) {
+            $this->reads->deleteByPage((int)$node->getId());
+            $this->pages->delete($node);
+        }
 
-        return new JSONResponse(['ok' => true]);
+        return new JSONResponse(['ok' => true, 'purged' => count($subtree)]);
     }
 
     // -------- Okundu (kullanıcı-bazlı; her giriş yapan işaretleyebilir) --------
 
-    /**
-     * @NoAdminRequired
-     */
+    #[NoAdminRequired]
     public function markRead(int $id): JSONResponse {
         $uid = $this->uid();
         if ($uid === '') {
@@ -949,9 +1032,7 @@ class ApiController extends Controller {
         return new JSONResponse(['pageId' => $id, 'readAt' => $now]);
     }
 
-    /**
-     * @NoAdminRequired
-     */
+    #[NoAdminRequired]
     public function unmarkRead(int $id): JSONResponse {
         $uid = $this->uid();
         if ($uid === '') {

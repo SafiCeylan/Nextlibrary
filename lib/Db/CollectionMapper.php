@@ -41,6 +41,18 @@ class CollectionMapper extends QBMapper {
     }
 
     /**
+     * TÜM koleksiyonlar — çöptekiler dahil. Medya çöp toplayıcısı bunu kullanır:
+     * çöpteki bir koleksiyonun görselleri hâlâ REFERANSLIDIR (geri yüklenebilir),
+     * silinmişleri atlarsak geri gelen koleksiyon görselsiz açılır.
+     * @return Collection[]
+     */
+    public function findAllIncludingDeleted(): array {
+        $qb = $this->db->getQueryBuilder();
+        $qb->select('*')->from($this->getTableName())->orderBy('id', 'ASC');
+        return $this->findEntities($qb);
+    }
+
+    /**
      * Kullanıcının okuyabileceği koleksiyonlar: herkese açık OLANLAR + sahibi olduğu
      * + üye (editör/okuyucu) olduğu. $memberIds = üyelik üzerinden erişilen koleksiyon id'leri.
      * @param int[] $memberIds
