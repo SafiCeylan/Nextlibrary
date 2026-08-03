@@ -437,4 +437,6 @@ Bölüm oluştur → ilerleme %100 olabiliyor mu         (1.4.3 regresyonu)
 
 ---
 
-*Son güncelleme: 3 Ağustos 2026 — Claude tarafından oluşturuldu (v1.5.0 kodu üzerinden).*
+*Son güncelleme: 3 Ağustos 2026 — v1.5.0 kodu üzerinden oluşturuldu; aynı gün bir tur
+sorun giderme yapıldı (medya çöp toplayıcısı, rol düğmesinin kaldırılması, çöp kutusu
+sorgusu, kimlik fallback'i, `tests/run.php`, deponun 1.0.4'ten güncellenmesi).*
