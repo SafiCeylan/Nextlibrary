@@ -18,14 +18,20 @@ declare(strict_types=1);
  *   2) PHP ↔ JS beyaz liste PARİTESİ — iki liste ayrışırsa istemcide temizlenen bir
  *      şey sunucuda geçebilir (ya da tersi sessizce içerik yer). Bu kontrol, CLAUDE.md'de
  *      "parite şart" diye yazılı kuralı makineye bağlar.
+ *   3) PermissionService'in SAF karar fonksiyonları — kimin yazabileceğini belirler.
+ *      Yanlış tarafa kayması "yetkisiz kullanıcı her şeyi siler" demek.
  *
  * Controller/Mapper testleri buraya GİRMEZ: OCP sınıflarını ve bir NC test bootstrap'ını
  * gerektirirler; onlar ancak gerçek bir Nextcloud geliştirme kurulumunda çalışır.
+ * PermissionService yüklenebiliyor çünkü OCP tip imzaları ancak NESNE ÜRETİLİRKEN
+ * çözülür — statik metotlar NC olmadan da çağrılabilir.
  */
 
 require_once __DIR__ . '/../lib/Service/HtmlSanitizer.php';
+require_once __DIR__ . '/../lib/Service/PermissionService.php';
 
 use OCA\NextLibrary\Service\HtmlSanitizer;
+use OCA\NextLibrary\Service\PermissionService;
 
 // ───────────────────────── küçük koşucu ─────────────────────────
 
@@ -177,6 +183,39 @@ if ($jsSource === false) {
     ok(count($jsSet($jsSource, 'SAFE_TAGS')) > 10, 'js SAFE_TAGS ayrıştırılabildi');
     ok(count($jsSet($jsSource, 'DROP_TAGS')) > 5, 'js DROP_TAGS ayrıştırılabildi');
 }
+
+// ─────────────── 3) PermissionService — yazma yetkisi kararı ───────────────
+
+section('PermissionService — editör eşleşmesi');
+
+// Varsayılan kurulum: liste boş → yönetici dışında kimse yazamaz.
+ok(!PermissionService::isListedEditor('ayse', ['users'], [], []), 'liste boşken kimse editör değil');
+ok(!PermissionService::isListedEditor('', [], ['ayse'], []), 'kimliksiz istek editör sayılmaz');
+
+ok(PermissionService::isListedEditor('ayse', [], ['ayse'], []), 'listedeki kullanıcı editör');
+ok(!PermissionService::isListedEditor('mehmet', [], ['ayse'], []), 'listede olmayan kullanıcı editör değil');
+
+ok(PermissionService::isListedEditor('ayse', ['editors'], [], ['editors']), 'editör grubunun üyesi editör');
+ok(!PermissionService::isListedEditor('ayse', ['sales'], [], ['editors']), 'başka grubun üyesi editör değil');
+ok(PermissionService::isListedEditor('ayse', ['sales', 'editors'], [], ['editors']), 'grupların biri eşleşse yeter');
+
+// Kullanıcı listesi ile grup listesi KARIŞMAMALI: 'editors' adında bir hesap, editör
+// GRUBU listesine bakılarak yetkilendirilmemeli (ve tersi).
+ok(!PermissionService::isListedEditor('editors', [], [], ['editors']), 'uid, grup listesiyle eşleşmez');
+ok(!PermissionService::isListedEditor('mehmet', ['ayse'], ['ayse'], []), 'grup adı, kullanıcı listesiyle eşleşmez');
+
+section('PermissionService — id normalizasyonu');
+
+same('["a","b"]', json_encode(PermissionService::normalizeIds(['a', ' b '])), 'boşluklar kırpılır');
+same('["a"]', json_encode(PermissionService::normalizeIds(['a', 'a'])), 'tekrar eden id bir kez yazılır');
+same('[]', json_encode(PermissionService::normalizeIds(['', '   '])), 'boş id atılır');
+same('[]', json_encode(PermissionService::normalizeIds('elma')), 'dizi olmayan girdi boş döner');
+same('[]', json_encode(PermissionService::normalizeIds([true, null, ['x'], new stdClass()])), 'skaler olmayan değerler atılır');
+same('["1"]', json_encode(PermissionService::normalizeIds([1])), 'sayısal id string olur');
+ok(
+    count(PermissionService::normalizeIds(range(1, PermissionService::MAX_ENTRIES + 50))) === PermissionService::MAX_ENTRIES,
+    'liste üst sınırda kesilir'
+);
 
 // ───────────────────────── sonuç ─────────────────────────
 

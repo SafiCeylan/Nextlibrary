@@ -4,7 +4,35 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.7.0] - 2026-08-04
+
+### Added
+- **Administrators can now hand out editing rights.** Until now writing was hard-wired to
+  Nextcloud administrators: there was no way to let a colleague add a page without making
+  them an administrator of the whole server. A new page under **Administration → Knowledge
+  Cards** lets an administrator pick accounts and groups as *editors*. An editor has the
+  same rights inside the app as an administrator — creating, editing and deleting
+  collections and pages, uploading media, managing members and the trash bin — and no extra
+  rights at all outside it.
+- Editors are chosen once for the whole app, not per collection. Group membership counts, so
+  adding a group is enough; people who join that group later become editors automatically.
+
+### Changed
+- **Only real Nextcloud administrators can change the editor list.** Editors match
+  administrators everywhere else in the app, but deliberately cannot appoint or remove
+  editors — otherwise an editor could make themselves permanent and take the decision away
+  from the administrator.
+- Wording that promised administrator-only writing was corrected: the visibility hints in
+  the member dialog, the message shown when a write is refused, and the App Store
+  description.
+- Accounts and groups that no longer exist are dropped when the editor list is saved, so a
+  mistyped name cannot sit in the list looking as though it grants something.
+
+### Note on upgrading
+Nothing changes for existing instances until an administrator appoints someone: with an
+empty editor list the app behaves exactly as it did in 1.6.0.
+
+## [1.6.0] - 2026-08-03
 
 ### Added
 - **Uploaded pictures and videos are now cleaned up.** A file could only ever be added,

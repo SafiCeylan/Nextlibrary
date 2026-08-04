@@ -60,7 +60,7 @@ function api(method,path,body){
 function apiErr(e){
   try{console.error('[NextLibrary API]',e);}catch(_){}
   const s=e&&e.status;
-  if(s===403)      toast(t('nextlibrary','You are not allowed to do this — only administrators can write here'));
+  if(s===403)      toast(t('nextlibrary','You are not allowed to do this — ask an administrator for editing rights'));
   else if(s===401) toast(t('nextlibrary','Your session has expired — reload the page and sign in again'));
   else if(s===429) toast(t('nextlibrary','Too many requests — wait a moment and try again'));
   else             toast(t('nextlibrary','Could not save to the server — check your connection'));
@@ -1770,14 +1770,17 @@ function renderVisibility(){
   ROOT.querySelectorAll('#mVis .mvis-btn').forEach(b=>b.classList.toggle('active',b.dataset.vis===mVisibility));
   const hint=el('mVisHint');
   if(hint)hint.textContent=mVisibility==='private'
-    ? '🔒 '+t('nextlibrary','Private: only the members below can see it. Writing is administrator-only.')
-    : '🌐 '+t('nextlibrary','Public: everyone signed in can read it. Writing is administrator-only.');
+    ? '🔒 '+t('nextlibrary','Private: only the members below can see it. Only administrators and editors can write.')
+    : '🌐 '+t('nextlibrary','Public: everyone signed in can read it. Only administrators and editors can write.');
 }
 /* Üyelik = "bu özel koleksiyonu KİM GÖREBİLİR". Yazma yetkisi değil.
    Buradaki editör/okuyucu düğmesi kaldırıldı: rol hiçbir yetkiyi etkilemiyordu
-   (sunucuda canEdit() yalnızca isAdmin'e bakar), yani kullanıcıya var olmayan bir
+   (sunucuda canEdit() yalnızca isAdmin'e bakıyordu), yani kullanıcıya var olmayan bir
    ayrım vaat ediyordu. Rol alanı API/DB'de 'editor' varsayılanıyla duruyor —
-   şema değişmesin ve eski istemciler bozulmasın diye. */
+   şema değişmesin ve eski istemciler bozulmasın diye.
+   1.7.0 NOT: yazma yetkisi artık admin'e ek olarak editörlerde de var, ama bu liste
+   UYGULAMA GENELİ ve Yönetim → Bilgi Kartları'ndan yönetiliyor. members.role hâlâ
+   hiçbir yetkiyi etkilemiyor; buraya rol düğmesi geri koymak yine yalan olur. */
 function renderMemberChips(){
   el('mChips').innerHTML=[...pendingMembers].map(([id])=>{const nm=pName(id);const col=pColor(id);return `<span class="mchip"><span class="av" style="background:${col.c};color:${col.t}">${esc((nm[0]||'?').toUpperCase())}</span>${esc(nm)}<button class="x" data-un="${esc(id)}">✕</button></span>`;}).join('');
   el('mChips').querySelectorAll('[data-un]').forEach(b=>b.onclick=()=>{pendingMembers.delete(b.dataset.un);renderMemberChips();renderMemberResults();updateMemberFooter();});

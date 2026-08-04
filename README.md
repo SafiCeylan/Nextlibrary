@@ -11,7 +11,7 @@ page remembers who has read it and when, so reading progress is visible at a gla
 - **Collections and pages** — a browsable tree on the left, a reading canvas in the middle, related pages on the right.
 - **Reading progress** — mark pages as read; progress bars and unread badges show what is left.
 - **Rich editor** — headings, lists, quotes, code blocks, text colours, highlights, callouts, alignment, links, images and YouTube/Vimeo/MP4 video embeds.
-- **Roles and visibility** — collections can be public to the instance or private to their members. Editing is restricted to Nextcloud administrators; everyone else reads.
+- **Roles and visibility** — collections can be public to the instance or private to their members. Nextcloud administrators can write, and under **Administration → Knowledge Cards** they can appoint accounts or groups as *editors* with the same rights; everyone else reads.
 - **Trash bin** — deleted collections and pages can be restored.
 - **Localisation** — English and Turkish; dates follow the Nextcloud UI language.
 - **Theme** — a light/dark switch, with accent colours that follow the Nextcloud primary theme colour.
@@ -63,10 +63,11 @@ server and open `dev.html`. It is a development aid only and is excluded from re
 php tests/run.php
 ```
 
-It covers the HTML sanitiser and checks that the server-side whitelist
-(`lib/Service/HtmlSanitizer.php`) still matches the client-side one (`js/app.js`). Those two
-lists must never drift apart, so the check is mechanical rather than a comment. Tests are
-excluded from release builds.
+It covers the HTML sanitiser, checks that the server-side whitelist
+(`lib/Service/HtmlSanitizer.php`) still matches the client-side one (`js/app.js`), and pins
+down who counts as an editor (`lib/Service/PermissionService.php`). The two whitelists must
+never drift apart, so the check is mechanical rather than a comment. Tests are excluded from
+release builds.
 
 ## License
 

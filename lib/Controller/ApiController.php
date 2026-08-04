@@ -13,6 +13,7 @@ use OCA\NextLibrary\Db\PageMapper;
 use OCA\NextLibrary\Db\ReadState;
 use OCA\NextLibrary\Db\ReadStateMapper;
 use OCA\NextLibrary\Service\HtmlSanitizer;
+use OCA\NextLibrary\Service\PermissionService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http;
@@ -40,6 +41,7 @@ class ApiController extends Controller {
     private IUserManager $userManager;
     private IAppData $appData;
     private HtmlSanitizer $sanitizer;
+    private PermissionService $perms;
 
     public function __construct(
         IRequest $request,
@@ -51,7 +53,8 @@ class ApiController extends Controller {
         IGroupManager $groupManager,
         IUserManager $userManager,
         IAppData $appData,
-        HtmlSanitizer $sanitizer
+        HtmlSanitizer $sanitizer,
+        PermissionService $perms
     ) {
         parent::__construct(Application::APP_ID, $request);
         $this->collections = $collections;
@@ -63,6 +66,7 @@ class ApiController extends Controller {
         $this->userManager = $userManager;
         $this->appData = $appData;
         $this->sanitizer = $sanitizer;
+        $this->perms = $perms;
     }
 
     // -------- Yardımcılar --------
@@ -108,13 +112,14 @@ class ApiController extends Controller {
         $this->collections->update($c);
     }
 
-    /** Düzenleme yetkisi: Yalnızca Nextcloud yöneticileri (admin) düzenleyebilir. */
+    /**
+     * Düzenleme yetkisi: Nextcloud yöneticileri VEYA yöneticinin ayarlardan işaretlediği
+     * editörler. Karar PermissionService'te — koleksiyona bağlı değil, uygulama geneli.
+     * Parametre imzada kalıyor: çağrı yerleri koleksiyonu zaten elinde tutuyor ve yetki
+     * ileride koleksiyon bazlı olursa tek yerden dallanabilsin.
+     */
     private function canEdit(Collection $c): bool {
-        $uid = $this->uid();
-        if ($uid === '') {
-            return false;
-        }
-        return $this->groupManager->isAdmin($uid);
+        return $this->perms->canWrite($this->uid());
     }
 
     /** Okuma yetkisi: herkese açık VEYA sahip VEYA herhangi bir rolde üye. */
@@ -225,9 +230,9 @@ class ApiController extends Controller {
 
         $respData = [
             'me' => ['id' => $uid, 'name' => $this->displayName()],
-            // Yazma yetkisi admin'e ait (canEdit). İstemci bunu bilmezse "Yeni koleksiyon"
-            // düğmesini herkese gösterir ve tıklayan kullanıcı yalnızca 403 görür.
-            'canCreate' => $this->groupManager->isAdmin($uid),
+            // Yazma yetkisi admin ve editörlere ait (canEdit). İstemci bunu bilmezse
+            // "Yeni koleksiyon" düğmesini herkese gösterir ve tıklayan yalnızca 403 görür.
+            'canCreate' => $this->perms->canWrite($uid),
             'collections' => $collections,
             // syncAt daima sunucu saatinden verilir; istemci saatiyle karşılaştırma yapılırsa
             // saat kayması yüzünden delta'lar atlanabilir veya tekrarlanabilir.
@@ -325,7 +330,7 @@ class ApiController extends Controller {
             if (!$this->canEdit($c)) {
                 return $this->forbidden();
             }
-        } elseif (!$this->groupManager->isAdmin($this->uid())) {
+        } elseif (!$this->perms->canWrite($this->uid())) {
             return $this->forbidden();
         }
 
@@ -462,7 +467,7 @@ class ApiController extends Controller {
         if ($uid === '') {
             return new JSONResponse(['error' => 'unauthenticated'], Http::STATUS_UNAUTHORIZED);
         }
-        if (!$this->groupManager->isAdmin($uid)) {
+        if (!$this->perms->canWrite($uid)) {
             return $this->forbidden();
         }
         // Zaten veri varsa import etme; mevcut durumu döndür
@@ -507,7 +512,7 @@ class ApiController extends Controller {
         if ($uid === '') {
             return new JSONResponse(['error' => 'unauthenticated'], Http::STATUS_UNAUTHORIZED);
         }
-        if (!$this->groupManager->isAdmin($uid)) {
+        if (!$this->perms->canWrite($uid)) {
             return $this->forbidden();
         }
         $name = trim((string)$this->request->getParam('name', ''));
@@ -1043,5 +1048,44 @@ class ApiController extends Controller {
             $this->reads->delete($existing);
         }
         return new JSONResponse(['ok' => true]);
+    }
+
+    // -------- Yönetici ayarı: uygulama geneli editör listesi --------
+
+    /**
+     * ⚠️ Aşağıdaki İKİ uçta `#[NoAdminRequired]` YOK — kasıtlı, silme.
+     * Editörler uygulama içinde yöneticiyle aynı yetkiye sahip ama bu listeye
+     * DOKUNAMAZLAR. Aksi halde bir editör kendini ve istediği kişiyi kalıcı olarak
+     * yetkilendirir, yönetici de geri alamazdı. AppFramework, attribute yoksa ucu
+     * yalnızca gerçek NC yöneticilerine açar.
+     */
+    public function getEditors(): JSONResponse {
+        return new JSONResponse($this->editorsPayload());
+    }
+
+    #[UserRateLimit(limit: 20, period: 60)]
+    public function setEditors(): JSONResponse {
+        $saved = $this->perms->setEditors(
+            (array)$this->request->getParam('users', []),
+            (array)$this->request->getParam('groups', [])
+        );
+        return new JSONResponse($this->editorsPayload($saved['users'], $saved['groups']));
+    }
+
+    /**
+     * Ayar sayfası çipleri için id + görünen ad. Silinmiş bir hesap kalmışsa
+     * principalLabel() ham id'yi döndürür — satır kaybolmaz, yönetici görüp temizler.
+     */
+    private function editorsPayload(?array $users = null, ?array $groups = null): array {
+        $users = $users ?? $this->perms->getEditorUsers();
+        $groups = $groups ?? $this->perms->getEditorGroups();
+        return [
+            'users' => array_map(function (string $id): array {
+                return ['id' => $id, 'name' => $this->principalLabel($id, 'user')];
+            }, $users),
+            'groups' => array_map(function (string $id): array {
+                return ['id' => $id, 'name' => $this->principalLabel($id, 'group')];
+            }, $groups),
+        ];
     }
 }

@@ -34,5 +34,9 @@ return [
         ['name' => 'api#restorePage', 'url' => '/api/pages/{id}/restore', 'verb' => 'POST'],
         ['name' => 'api#purgeCollection', 'url' => '/api/collections/{id}/purge', 'verb' => 'DELETE'],
         ['name' => 'api#purgePage', 'url' => '/api/pages/{id}/purge', 'verb' => 'DELETE'],
+
+        // -------- Yönetici ayarı: editör listesi (yalnızca gerçek NC yöneticileri) --------
+        ['name' => 'api#getEditors', 'url' => '/api/editors', 'verb' => 'GET'],
+        ['name' => 'api#setEditors', 'url' => '/api/editors', 'verb' => 'PUT'],
     ],
 ];

@@ -12,7 +12,7 @@
 |---|---|
 | **App id** | `nextlibrary` (namespace: `OCA\NextLibrary`) |
 | **Görünen ad** | Knowledge Cards — TR: *Bilgi Kartları* |
-| **Sürüm** | 1.5.0 (31 Tem 2026) |
+| **Sürüm** | 1.7.0 (4 Ağu 2026) |
 | **Geliştirici** | Mehmet Safi Ceylan (SafiCeylan / memoc) |
 | **Repo** | `github.com/SafiCeylan/Nextlibrary` |
 | **Proje yolu** | `C:\Users\memoc\OneDrive\Desktop\agents\nextcloud-app\nextlibrary` |
@@ -65,16 +65,23 @@ nextlibrary/
 │   ├── AppInfo/Application.php      # Boş bootstrap (DI otomatik).
 │   ├── Controller/
 │   │   ├── PageController.php       # index(): şablon + CSP (medya/iframe izinleri).
-│   │   └── ApiController.php        # ⭐ Projenin sunucu kalbi (~1050 satır).
+│   │   └── ApiController.php        # ⭐ Projenin sunucu kalbi (~1100 satır).
 │   ├── Db/                          # 4 Entity + 4 QBMapper. Mantık yok, sorgu var.
 │   │   └── PageMapper::subtree()    # static — alt ağaç (BFS, döngü korumalı).
+│   ├── Settings/                    # Yönetim → Bilgi Kartları (editör listesi).
+│   │   ├── AdminSection.php         # Kenar çubuğu bölümü (simge + ad).
+│   │   └── AdminSettings.php        # Formu döndürür; admin.php + admin.js/css yükler.
+│   ├── Service/PermissionService.php # ⭐ Yazma yetkisinin TEK karar noktası.
 │   ├── Service/HtmlSanitizer.php    # ⚠️ js/app.js sanitize() ile PARİTE ŞART.
 │   ├── BackgroundJob/
 │   │   └── CleanupMediaJob.php      # Günlük yetim medya toplayıcısı (info.xml'de kayıtlı).
 │   └── Migration/                   # 4 adım — aşağıdaki şema geçmişine bak.
 ├── js/app.js                 # ⭐ İstemcinin tamamı. Tek IIFE, boot() içinde.
+├── js/admin.js               # Ayar sayfası (editör seçici). app.js'ten BAĞIMSIZ.
 ├── css/style.css             # Tamamı #kesif-app altında kapsanmış (37 KB).
+├── css/admin.css             # Yalnızca ayar sayfası — style.css oraya ULAŞMAZ.
 ├── templates/main.php        # Statik iskelet + i18n.
+├── templates/admin.php       # Ayar formu iskeleti (#nextlibrary-admin).
 ├── l10n/tr.js + tr.json      # Türkçe. Kaynak dil İngilizce (ayrı dosya yok).
 ├── img/app.svg               # Navigasyon simgesi — BEYAZ çizilmeli (NC bar açık renk).
 ├── docker/                   # Tam-yığın dağıtım (NC 30 + MariaDB + app gömülü).
@@ -127,21 +134,25 @@ nextlibrary/
 
 Taban: `/apps/nextlibrary/api`. Tümü oturum + `requesttoken` ister.
 
+**Yetki sütunu:** `yazar` = admin **veya** editör (`perms->canWrite`). `NC admin` = yalnızca
+gerçek yönetici (uçta `#[NoAdminRequired]` yok).
+
 | Metot | Yol | Yetki | Not |
 |-------|-----|-------|-----|
 | GET | `/state` | okuyucu | `?since=<ms>` → delta. `since` yoksa tam durum. |
-| POST | `/import` | **admin** | Yalnızca sunucu tamamen boşsa çalışır. |
+| POST | `/import` | **yazar** | Yalnızca sunucu tamamen boşsa çalışır. |
 | GET | `/principals?q=` | okuyucu | Üye seçici için NC kullanıcı/grup araması (60/dk). |
-| POST | `/upload` | **admin** | Görsel/video → appdata. `collectionId=0` → simge. |
+| POST | `/upload` | **yazar** | Görsel/video → appdata. `collectionId=0` → simge. |
 | GET | `/media/{cid}/{name}` | koleksiyonu okuyabilen | 30 gün cache (ad immutable). |
-| POST/PUT/DELETE | `/collections[/{id}]` | **admin** | |
-| PUT | `/collections/{id}/members` | **admin** | Üye listesini tamamen değiştirir. |
-| POST | `/collections/{id}/pages` | **admin** | `parentId` opsiyonel. |
-| PUT/DELETE | `/pages/{id}` | **admin** | PUT'ta iyimser kilitleme (aşağıda). |
+| POST/PUT/DELETE | `/collections[/{id}]` | **yazar** | |
+| PUT | `/collections/{id}/members` | **yazar** | Üye listesini tamamen değiştirir. |
+| POST | `/collections/{id}/pages` | **yazar** | `parentId` opsiyonel. |
+| PUT/DELETE | `/pages/{id}` | **yazar** | PUT'ta iyimser kilitleme (aşağıda). |
 | POST/DELETE | `/pages/{id}/read` | **her oturum** | Okundu işareti kullanıcıya özel. |
 | GET | `/trash` | okuyucu | |
-| POST | `/collections/{id}/restore`, `/pages/{id}/restore` | **admin** | |
-| DELETE | `/collections/{id}/purge`, `/pages/{id}/purge` | **admin** | Kalıcı. |
+| POST | `/collections/{id}/restore`, `/pages/{id}/restore` | **yazar** | |
+| DELETE | `/collections/{id}/purge`, `/pages/{id}/purge` | **yazar** | Kalıcı. |
+| GET/PUT | `/editors` | 🔒 **NC admin** | Editör listesi. Ayar sayfası buraya konuşur. |
 
 **Rate limit** `#[UserRateLimit]` ile: yazma 20–60/dk, sayfa güncelleme 300/dk
 (editör debounce'lu yazarken tetiklenir), import 5/dk.
@@ -167,24 +178,51 @@ Silen kimse yoktu → `lib/BackgroundJob/CleanupMediaJob.php` (günde bir, `info
 
 ## 🔐 Yetki Modeli — DİKKAT
 
+Karar **tek yerde**: `lib/Service/PermissionService.php`. Controller'da hiçbir yerde
+`isAdmin()` çağrısı **kalmadı** — hepsi `perms->canWrite($uid)`'den geçiyor.
+
 ```php
-private function canEdit(Collection $c): bool {
-    return $this->groupManager->isAdmin($this->uid());   // ← TEK KURAL
-}
+canWrite(uid) = isAdmin(uid)  VEYA  uid editör listesinde  VEYA  grubu editör listesinde
 ```
 
-**Yazma yetkisi yalnızca Nextcloud yöneticilerine aittir.** Koleksiyon sahibi olmak,
-üye/editör rolü taşımak yazma hakkı **vermez**.
+**Editör = uygulama içinde yönetici.** (4 Ağu 2026, kullanıcı kararı: *"admin belli
+kullanıcılara yetki verecek"* + *"admin gibi tam yetki"*.) Koleksiyon açar/siler, kalıcı
+siler, üye ve görünürlük yönetir, medya yükler. Fark yalnızca NC'nin kendi yönetim
+panelinde.
 
-`members.role` (`editor`/`reader`) DB'de tutuluyor ama **hiçbir yetkiyi etkilemiyor**.
-Üyelik yalnızca `visibility=private` koleksiyonlarda **okuma** erişimi verir — rolden bağımsız.
-Bu yüzden arayüzdeki editör/okuyucu düğmesi **kaldırıldı** (var olmayan bir ayrım vaat ediyordu);
-alan şema uyumluluğu için duruyor, yeni üyeler `editor` olarak yazılır.
-**Rolü yeniden canlandıracaksan** `canEdit()`'i değiştirmek yetmez — kullanıcı 30 Tem 2026'da
-"sadece adminler yazabilsin" dedi, önce bu kararı teyit et.
+### İki kapı ayrı — bilerek
+
+| | Kim yapabilir |
+|---|---|
+| Uygulama içinde yazmak | admin **+ editörler** |
+| **Editör listesini değiştirmek** | **yalnızca gerçek NC admin** |
+
+`ApiController::getEditors/setEditors` uçlarında `#[NoAdminRequired]` **YOK** — AppFramework
+onları admin'e kilitler. **Bu attribute'u ekleme:** editör kendi listesini düzenleyebilseydi
+kendini kalıcılaştırır, yönetici geri alamazdı.
+
+### Depolama
+`IConfig` app-value, iki anahtar: `editor_users`, `editor_groups` (JSON dizi).
+`IAppConfig` **kullanılamaz** — NC 29+; uygulama 28'i de destekliyor.
+Kaydederken var olmayan hesap/gruplar elenir, liste `MAX_ENTRIES=200`'de kesilir,
+bozuk JSON boş listeye düşer (asla "herkes editör" değil).
+
+### Hâlâ geçerli: `members.role` bir şey YAPMAZ
+`editor`/`reader` DB'de duruyor ama **hiçbir yetkiyi etkilemiyor**. Üyelik yalnızca
+`visibility=private` koleksiyonlarda **okuma** erişimi verir. Yetki uygulama geneli olduğu
+için arayüzdeki rol düğmesi 1.6.0'da kaldırıldı ve **geri konmadı** — koymak yine var
+olmayan bir ayrım vaat etmek olur. Koleksiyon bazlı yetki isteniyorsa `canEdit(Collection $c)`
+imzası bunun için duruyor (parametre kullanılmıyor ama yerinde).
 
 Okuma (`canRead`): `visibility=public` **VEYA** sahip **VEYA** herhangi bir rolde üye
-(kullanıcı uid'i ya da üye olduğu grup id'si eşleşirse).
+(kullanıcı uid'i ya da üye olduğu grup id'si eşleşirse). **Editörlük okuma yetkisi vermez:**
+üyesi olmadığı özel bir koleksiyon editörün `state()` yanıtında **görünmez**.
+
+> ⚠️ Ama listede görünmemek yazmayı engellemiyor: yazma uçları yalnızca `canEdit()`'e bakar,
+> `canRead()`'e **bakmaz**. Yani id'sini bilen bir editör, göremediği özel bir koleksiyona
+> yazabilir. Bu 1.7.0'ın getirdiği bir açık **değil** — adminler için baştan beri böyleydi
+> ve "editör = admin" kararının doğal sonucu. Kapatılacaksa yazma uçlarına `canRead()`
+> kontrolü eklenmeli; bu **adminlerin** davranışını da değiştirir, kullanıcıya sor.
 
 **İstemci tarafı:** `state.canCreate` + `collection.canEdit` sunucudan gelir. Bu bayraklar
 gelmezse istemci `false` varsayar → yazma düğmeleri gizlenir. 1.0.7'de düzeltilen hata
@@ -315,13 +353,23 @@ Kaynak dil **İngilizce** (kodda birebir metin). Türkçe `l10n/tr.js` + `l10n/t
 ```bash
 php tests/run.php
 ```
-Composer/PHPUnit **yok** — yalnızca `ext-dom`. PHP kurulu değilse:
-`docker run --rm -v "%CD%:/app" -w /app php:8.3-cli php tests/run.php`
+Composer/PHPUnit **yok** — yalnızca `ext-dom`.
 
-İki şey ölçülür: (1) `HtmlSanitizer` davranışı, (2) **PHP ↔ JS beyaz liste paritesi** —
-`SAFE/DROP/ALLOW/IFRAME_ATTR` listeleri `js/app.js` karşılıklarıyla karşılaştırılır.
-Bu, CLAUDE.md'de yazılı "parite şart" kuralını yoruma bırakmayıp makineye bağlar.
+> ℹ️ **Bu geliştirme makinesinde PHP KURULU DEĞİL** (4 Ağu 2026 itibarıyla) → yukarıdaki
+> komut çalışmaz, tek yol Docker. Docker Desktop kapalıysa önce başlat (~1-2 dk):
+> `docker run --rm -v "%CD%:/app" -w /app php:8.3-cli php tests/run.php`
+> Git Bash'ten yol dönüşümünü kapat (`MSYS_NO_PATHCONV=1`) ve mutlak Windows yolu ver.
+> Aynı imaj `php -l` sözdizimi kontrolü için de kullanılır.
+
+Üç şey ölçülür: (1) `HtmlSanitizer` davranışı, (2) **PHP ↔ JS beyaz liste paritesi** —
+`SAFE/DROP/ALLOW/IFRAME_ATTR` listeleri `js/app.js` karşılıklarıyla karşılaştırılır,
+(3) `PermissionService`'in **saf** karar fonksiyonları (`isListedEditor`, `normalizeIds`).
+Parite testi, CLAUDE.md'de yazılı "parite şart" kuralını yoruma bırakmayıp makineye bağlar.
 **Sanitizer'ın iki tarafından birini değiştirirsen bu test kırmızıya döner — istenen budur.**
+
+> `PermissionService` NC olmadan yüklenebiliyor çünkü OCP tip imzaları ancak **nesne
+> üretilirken** çözülür. `canWrite()` bu saf fonksiyona DELEGE eder — mantığın ikinci bir
+> kopyasını yazarsan test edilen kod ile çalışan kod sessizce ayrışır.
 
 ### dev.html (NC olmadan)
 `t()`/`n()` ve REST API'yi taklit eder, arayüzü tarayıcıda açar.
@@ -376,18 +424,31 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
    `state()` sıcak yol ve düzeltmesi daha büyük: sayfa/üye toplu çekilip PHP tarafında
    gruplanmalı, principal adları da tek turda çözülmeli.
 2. **Test kapsamı dar.** `tests/run.php` yalnızca NC'ye bağımlı olmayanı test eder
-   (sanitizer + parite). Controller/Mapper testleri gerçek NC geliştirme kurulumu ister;
-   yazılmadı. **JS tarafı hiç test edilmiyor** — `sanitize()` DOM'a bağlı olduğu için
-   bağımlılıksız koşturulamıyor.
+   (sanitizer + parite + `PermissionService`'in saf kısmı). Controller/Mapper testleri
+   gerçek NC geliştirme kurulumu ister; yazılmadı. **JS tarafı hiç test edilmiyor** —
+   `sanitize()` DOM'a bağlı olduğu için bağımlılıksız koşturulamıyor. Editör tarafında
+   test edilmeyen kısım: `canWrite()`'ın `isAdmin` dalı ve uçların admin kilidi
+   (`#[NoAdminRequired]` yokluğu) — ikisi de NC gerektiriyor, **elle doğrulanmalı**.
 3. **`media_0` erişim denetimi zayıf.** Koleksiyon oluşturulmadan yüklenen simgeler
    **giriş yapmış herkese** servis edilir (`media()` içinde `cid=0` dalı). Ad tahmin
    edilemez (32 hex) ve içerik yalnızca simge — kabul edilmiş bir ödünleşme, ama gerçek
    bir yetki kontrolü değil.
-4. **Medya çöp toplayıcısı doğrulanmadı.** Kod yazıldı, cron'da çalışırken izlenmedi.
-   İlk kurulumda `occ background-job:list` ile işin kayıtlı olduğunu ve bir tur sonra
-   `media_0`'ın küçüldüğünü kontrol et.
-5. **Sürüm numarası bumplanmadı.** Değişiklikler `CHANGELOG.md`'de `[Unreleased]` altında;
-   yayınlarken `release.ps1 -Version 1.6.0` ile numara verilecek.
+4. **Sunucudaki cron modu `ajax`.** Sistem crontab'ında `cron.php` yok, systemd timer yok →
+   arka plan işleri ancak biri sayfa açınca tetiklenir. Medya toplayıcısı için sorun değil
+   (günlük iş, aceleye gerek yok) ama **kimse girmezse hiç çalışmaz.** Gerçek cron'a
+   geçmek tüm Nextcloud'u ilgilendiren bir sistem kararı — kendi başına değiştirme.
+5. **`<background-jobs>` ve `<settings>` yalnızca sürüm ARTINCA kaydolur.** `occ upgrade`
+   kayıt eden yolu ancak `info.xml` sürümü `installed_version`'dan büyükse koşar. Yeni bir
+   arka plan işi ya da ayar sayfası eklerken sürümü bumplamayı unutursan sunucuda hiç
+   oluşmaz ve deploy sessizce yarım kalır. (3 Ağu'da 1.5.0 → 1.6.0, 4 Ağu'da ayar sayfası
+   için 1.6.0 → 1.7.0 tam olarak bu yüzden yapıldı.)
+6. **Editör listesi `IConfig` app-value'da.** `IConfig::getAppValue/setAppValue` NC 29'da
+   **deprecated** — ama `IAppConfig` NC 29+ ve uygulama NC 28'i de destekliyor, yani şu an
+   28-34 aralığında çalışan tek yol bu. NC 28 desteği düşerse `IAppConfig`'e geç
+   (`PermissionService` dışında hiçbir yeri ilgilendirmiyor).
+7. **Yazma uçları `canRead()` kontrol etmiyor.** id'sini bilen bir yazar (admin veya editör)
+   `state()`'te göremediği özel bir koleksiyona yazabilir. Adminler için baştan beri böyle;
+   detay ve kapatma maliyeti için "Yetki Modeli" bölümündeki uyarıya bak.
 
 ---
 
@@ -405,6 +466,8 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 | 1.3.0 | 31 Tem | **Yüklenen simge** (`icon`); sağ panel = bulunduğun klasör; ağaç ~3× hızlandı. |
 | 1.4.0–1.4.3 | 31 Tem | Çöpte toplu silme; kırmızı silme butonları; ＋ menüsü; okuma navigasyonu klasörde kalır; bölümler sayaçtan çıktı. |
 | 1.5.0 | 31 Tem | **NC dosya bağlama** (`/f/<fileid>` — kalıcı, yetkiye saygılı). |
+| 1.6.0 | 3 Ağu | **Yetim medya toplayıcısı**; rol düğmesi kaldırıldı; çöp kutusu tek sorgu; kimlik fallback'i; `tests/run.php`. Sunucuda canlı (44 test yeşil, iş 3 yetim sildi, referanslıyı korudu). |
+| 1.7.0 | 4 Ağu | **Editör yetkisi**: yönetici, Yönetim → Bilgi Kartları'ndan hesap/grup atar; editör uygulama içinde admin kadar yetkili. Listeyi yalnızca gerçek NC admin değiştirir. |
 
 ---
 
@@ -418,7 +481,10 @@ karıştırma), `CHANGELOG.md`'nin en üstüne bak.
 - Kod yorumları **neden** yazılmış olduğunu anlatır (Türkçe). Bir davranışı değiştirmeden
   önce üstündeki yorumu oku — çoğu bir hatanın izidir.
 - `sanitize()` değiştirdiysen `HtmlSanitizer.php`'yi de değiştir (ve tersi) → `php tests/run.php`.
-- PHP dokunduysan `php tests/run.php`, JS dokunduysan en az `node --check js/app.js`.
+- PHP dokunduysan `php tests/run.php`, JS dokunduysan en az `node --check js/app.js`
+  (ayar sayfasına dokunduysan `js/admin.js` de).
+- **Yetki kuralına dokunuyorsan** yalnızca `PermissionService`'i değiştir; controller'a
+  `isAdmin()` geri getirme — kural tek yerde kalmalı.
 - Şema değiştiysen **yeni** migration ekle, index adını 30 karakterin altında tut.
 - Kullanıcıya görünen metin eklediysen `l10n/tr.js` + `tr.json`.
 - Bitince: `CHANGELOG.md` + bu dosya güncellenir.
@@ -433,9 +499,24 @@ Admin olmayan hesapla gir                           (düğmeler gizli, 403 yok)
 Özel koleksiyon + üye olmayan hesap                 (görünmemeli)
 Görsel yükle → sağ tık kaydet                       (appdata'dan servis)
 Bölüm oluştur → ilerleme %100 olabiliyor mu         (1.4.3 regresyonu)
+
+── 1.7.0 editör yetkisi ──
+Yönetim → Bilgi Kartları açılıyor mu                (ayar kaydı sürüm artışına bağlı)
+Hesabı editör yap → o hesapla gir                   (yazma düğmeleri GÖRÜNMELİ)
+Editör hesabıyla Yönetim → Bilgi Kartları           (sayfa açılmamalı / 403)
+Editörü listeden çıkar → tekrar gir                 (düğmeler tekrar gizlenmeli)
+Grubu editör yap, üyesiyle gir                      (grup üzerinden de yetki)
+Editör hesabıyla koleksiyon SİL                     ("admin gibi tam yetki" kararı)
+Silinmiş bir hesabı listeye yazmayı dene            (kaydedince elenmeli)
 ```
 
 ---
+
+*4 Ağustos 2026 — v1.7.0: editör yetkisi. Kullanıcı kararı: yetki **uygulama geneli**
+(koleksiyon bazlı değil) ve editör **admin kadar yetkili**. `PermissionService` yazıldı,
+controller'daki tüm `isAdmin()` çağrıları oradan geçirildi, Yönetim → Bilgi Kartları ayar
+sayfası eklendi (`Settings/` + `admin.php/js/css`), 16 yeni test (toplam 60 yeşil).
+Sunucuya HENÜZ kurulmadı.*
 
 *Son güncelleme: 3 Ağustos 2026 — v1.5.0 kodu üzerinden oluşturuldu; aynı gün bir tur
 sorun giderme yapıldı (medya çöp toplayıcısı, rol düğmesinin kaldırılması, çöp kutusu

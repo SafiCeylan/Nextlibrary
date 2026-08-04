@@ -16,7 +16,7 @@ when, so progress is visible at a glance.
 - **Collections and pages** — a browsable tree on the left, a reading canvas in the middle, related pages on the right.
 - **Reading progress** — mark pages as read; progress bars and badges show what is left.
 - **Rich editor** — headings, lists, quotes, code blocks, colours, highlights, callouts, images and video embeds.
-- **Roles** — writing is restricted to Nextcloud administrators; everyone else reads. Collections can be public to the instance or private to their members.
+- **Roles** — administrators write, and can appoint accounts or groups as editors with the same rights; everyone else reads. Collections can be public to the instance or private to their members.
 - **Trash bin** — deleted collections and pages can be restored.
 - **Dark mode** and full-text search across pages.
     ]]></description>
@@ -30,11 +30,11 @@ tek bakışta görünür.
 - **Koleksiyonlar ve sayfalar** — solda gezilebilir ağaç, ortada okuma kanvası, sağda ilgili sayfalar.
 - **Okuma takibi** — sayfaları okundu işaretleyin; ilerleme çubukları ve rozetler kalanı gösterir.
 - **Zengin düzenleyici** — başlıklar, listeler, alıntılar, kod blokları, renkler, vurgular, bilgi notları, görseller ve video gömme.
-- **Roller** — yazma yetkisi Nextcloud yöneticilerine aittir; diğer herkes okur. Koleksiyonlar sunucuya açık ya da üyelerine özel olabilir.
+- **Roller** — yöneticiler yazar ve aynı yetkiyi verecek şekilde hesap ya da grupları editör atayabilir; diğer herkes okur. Koleksiyonlar sunucuya açık ya da üyelerine özel olabilir.
 - **Çöp kutusu** — silinen koleksiyon ve sayfalar geri yüklenebilir.
 - **Karanlık mod** ve sayfalarda tam metin arama.
     ]]></description>
-    <version>1.5.0</version>
+    <version>1.7.0</version>
     <licence>agpl</licence>
     <author mail="saficeylan89@gmail.com">Mehmet Safi Ceylan</author>
     <namespace>NextLibrary</namespace>
@@ -49,10 +49,16 @@ tek bakışta görünür.
         <php min-version="8.0" max-version="8.4"/>
         <nextcloud min-version="28" max-version="34"/>
     </dependencies>
-    <!-- Yetim medya toplayıcısı. XSD sırası: dependencies → background-jobs → navigations. -->
+    <!-- Yetim medya toplayıcısı. XSD sırası: dependencies → background-jobs → settings → navigations. -->
     <background-jobs>
         <job>OCA\NextLibrary\BackgroundJob\CleanupMediaJob</job>
     </background-jobs>
+    <!-- Yönetim → Bilgi Kartları: editör listesi. Ayarlar YALNIZCA buradan kaydolur
+         (otomatik keşif yok) ve kayıt ancak sürüm ARTINCA yenilenir — bu yüzden 1.7.0. -->
+    <settings>
+        <admin>OCA\NextLibrary\Settings\AdminSettings</admin>
+        <admin-section>OCA\NextLibrary\Settings\AdminSection</admin-section>
+    </settings>
     <navigations>
         <navigation>
             <!-- Translated via l10n/*, not a lang attribute: the XSD rejects lang here. -->
