@@ -357,11 +357,14 @@ php tests/run.php
 ```
 Composer/PHPUnit **yok** — yalnızca `ext-dom`.
 
-> ℹ️ **Bu geliştirme makinesinde PHP KURULU DEĞİL** (4 Ağu 2026 itibarıyla) → yukarıdaki
-> komut çalışmaz, tek yol Docker. Docker Desktop kapalıysa önce başlat (~1-2 dk):
+> ℹ️ **PHP bu makinede PATH'te değil ama KURULU** (4 Ağu 2026'da doğrulandı):
+> `C:\Users\memoc\OneDrive\Desktop\Projeler\php\php.exe` — `ext-dom` içeriyor, 60 testi
+> koşturuyor. Yani `php tests/run.php` yerine tam yolla çağır:
+> `& "C:\Users\memoc\OneDrive\Desktop\Projeler\php\php.exe" tests/run.php`
+>
+> Docker'a **gerek yok**; yedek yol olarak dursun (Docker Desktop kapalıysa ~1-2 dk açılır):
 > `docker run --rm -v "%CD%:/app" -w /app php:8.3-cli php tests/run.php`
 > Git Bash'ten yol dönüşümünü kapat (`MSYS_NO_PATHCONV=1`) ve mutlak Windows yolu ver.
-> Aynı imaj `php -l` sözdizimi kontrolü için de kullanılır.
 
 Üç şey ölçülür: (1) `HtmlSanitizer` davranışı, (2) **PHP ↔ JS beyaz liste paritesi** —
 `SAFE/DROP/ALLOW/IFRAME_ATTR` listeleri `js/app.js` karşılıklarıyla karşılaştırılır,
