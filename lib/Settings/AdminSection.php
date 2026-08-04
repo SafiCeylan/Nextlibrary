@@ -36,10 +36,12 @@ class AdminSection implements IIconSection {
     }
 
     /**
-     * Navigasyondaki simgenin aynısı. Dosya BEYAZ çizili — NC parlak arka planda kendisi
-     * ters çevirir (bkz. img/app.svg başındaki not).
+     * ⚠️ `app.svg` DEĞİL — o BEYAZ çizili ve yalnızca uygulama menüsünün koyu zemini için.
+     * Ayarların kenar çubuğu açık zeminli: beyaz simge orada görünmez oluyor, diğer
+     * uygulamaların siyah simgeleri arasında sırıtıyordu (1.7.0'da bildirilen hata).
+     * Koyu temada NC bu siyah simgeyi kendisi ters çevirir.
      */
     public function getIcon(): string {
-        return $this->urlGenerator->imagePath(Application::APP_ID, 'app.svg');
+        return $this->urlGenerator->imagePath(Application::APP_ID, 'app-dark.svg');
     }
 }

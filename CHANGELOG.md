@@ -4,6 +4,15 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.7.1] - 2026-08-04
+
+### Fixed
+- **The Knowledge Cards icon was invisible in the administration sidebar.** The settings
+  page added in 1.7.0 reused the app menu's icon, which is drawn in white so it reads
+  against the dark top bar. The settings sidebar has a light background, so the icon
+  disappeared and stood out among the black icons of every other app. It now uses a black
+  variant, which Nextcloud inverts by itself in dark mode.
+
 ## [1.7.0] - 2026-08-04
 
 ### Added

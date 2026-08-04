@@ -83,7 +83,9 @@ nextlibrary/
 ├── templates/main.php        # Statik iskelet + i18n.
 ├── templates/admin.php       # Ayar formu iskeleti (#nextlibrary-admin).
 ├── l10n/tr.js + tr.json      # Türkçe. Kaynak dil İngilizce (ayrı dosya yok).
-├── img/app.svg               # Navigasyon simgesi — BEYAZ çizilmeli (NC bar açık renk).
+├── img/app.svg               # Navigasyon simgesi — BEYAZ (uygulama menüsünün koyu zemini).
+├── img/app-dark.svg          # ⚠️ Aynı simgenin SİYAHI — ayarlar kenar çubuğu AÇIK zeminli.
+│                             #    İkisini karıştırma: 1.7.0'da beyaz olan ayarlarda kayboldu.
 ├── docker/                   # Tam-yığın dağıtım (NC 30 + MariaDB + app gömülü).
 ├── tests/run.php             # Bağımlılıksız test koşucusu. Release'e GİRMEZ.
 ├── dev.html                  # NC dışında çalışan test koşumu. Release'e GİRMEZ.
@@ -468,6 +470,7 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 | 1.5.0 | 31 Tem | **NC dosya bağlama** (`/f/<fileid>` — kalıcı, yetkiye saygılı). |
 | 1.6.0 | 3 Ağu | **Yetim medya toplayıcısı**; rol düğmesi kaldırıldı; çöp kutusu tek sorgu; kimlik fallback'i; `tests/run.php`. Sunucuda canlı (44 test yeşil, iş 3 yetim sildi, referanslıyı korudu). |
 | 1.7.0 | 4 Ağu | **Editör yetkisi**: yönetici, Yönetim → Bilgi Kartları'ndan hesap/grup atar; editör uygulama içinde admin kadar yetkili. Listeyi yalnızca gerçek NC admin değiştirir. |
+| 1.7.1 | 4 Ağu | Ayarlar kenar çubuğundaki simge beyaz olduğu için görünmüyordu → `img/app-dark.svg`. |
 
 ---
 
