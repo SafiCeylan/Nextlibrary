@@ -454,6 +454,33 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 7. **Yazma uçları `canRead()` kontrol etmiyor.** id'sini bilen bir yazar (admin veya editör)
    `state()`'te göremediği özel bir koleksiyona yazabilir. Adminler için baştan beri böyle;
    detay ve kapatma maliyeti için "Yetki Modeli" bölümündeki uyarıya bak.
+8. **⛔ ASLA "yalnızca değişen dosyaları" kopyalayarak deploy etme — HER ZAMAN tam
+   release tar'ını aç.** 11 Ağu 2026'da uygulama komple 500 veriyordu. Sebep: sunucuda
+   kurulu olan **1.0.6**'ydı ve üzerine yalnızca 1.7.0/1.7.1'de *değişen* dosyalar
+   kopyalanmıştı. Migration'lar (1.1.0–1.3.0) yeni olduğu için DB'ye `parent_id` kolonu
+   eklenmişti, ama `lib/Db/Page.php` 1.0.6'da kalmıştı → `Entity::fromRow()` `setParentId()`
+   arayıp `BadFunctionCallException: parentId is not a valid attribute` fırlatıyordu.
+   Sayfa okuyan HER uç (`/api/state` dahil) patlıyordu. `installed_version` 1.7.1 yazdığı
+   için `occ upgrade` de "zaten güncel" deyip geçiyordu — **sürüm numarası dosyaların
+   gerçekten yerinde olduğunu KANITLAMAZ.**
+   Teşhis yöntemi (tekrar lazım olursa): sunucudaki dosyaların md5'ini `nextcloud-app/`
+   altındaki release tar'larıyla karşılaştır; hangi dosyanın hangi sürümden kaldığı
+   böyle çıkıyor.
+9. **⚠️ Sunucuyu silmeden önce sunucudaki kodu İNDİR.** Aynı olayda "Kart Şablonları"
+   özelliği yalnızca sunucuda yaşıyordu (`js/app.js`, `css/style.css`, `templates/main.php`
+   — repoda ve hiçbir release'te yoktu). Temiz kurulum onu silecekti. Geliştirme zaman
+   zaman doğrudan sunucuda yapılıyor → `apps/nextlibrary`'yi wipe etmeden önce `scp -r` ile
+   indir ve en yakın release ile diff'le. **Bu iki kez üst üste yaşandı** (1.7.2 ve 1.8.0):
+   sunucuda yapılan iş hep ESKİ app.js üzerine yazılıyor, olduğu gibi alınırsa iç içe
+   kartlar / bölümler / `openPages` geri gider. Doğru yol: sunucudaki sürümü en yakın
+   release ile diff'leyip YALNIZCA yeni işi güncel tabana taşımak.
+10. **Şablon HTML'i sanitizer'dan geçmek ZORUNDA.** Şablon gövdeleri sayfa içeriği olarak
+   kaydediliyor, yani `HtmlSanitizer`'dan geçiyor: `style=` ALLOW listesinde YOK (satır içi
+   renk/hizalama siliniyor) ve `BUTTON` DROP listesinde (içeriğiyle birlikte yok oluyor).
+   Sonuç sinsi: kart yazılırken doğru görünüyor, KAYDEDİLİNCE bozuluyor. Görsellik hep
+   sınıfla verilmeli, tıklanabilir şey `<span>` + delege dinleyici olmalı. Yeni şablon
+   eklerken etiket/sınıf kaybını ölç (şablonları JSON'a çıkarıp `HtmlSanitizer::clean()`
+   öncesi/sonrası etiket ve sınıf sayımlarını karşılaştıran kısa bir betik yeter).
 
 ---
 
@@ -474,6 +501,8 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 | 1.6.0 | 3 Ağu | **Yetim medya toplayıcısı**; rol düğmesi kaldırıldı; çöp kutusu tek sorgu; kimlik fallback'i; `tests/run.php`. Sunucuda canlı (44 test yeşil, iş 3 yetim sildi, referanslıyı korudu). |
 | 1.7.0 | 4 Ağu | **Editör yetkisi**: yönetici, Yönetim → Bilgi Kartları'ndan hesap/grup atar; editör uygulama içinde admin kadar yetkili. Listeyi yalnızca gerçek NC admin değiştirir. |
 | 1.7.1 | 4 Ağu | Ayarlar kenar çubuğundaki simge beyaz olduğu için görünmüyordu → `img/app-dark.svg`. |
+| 1.7.2 | 11 Ağu | **Kart Şablonları** (sağ rayda sekme, 5 hazır iskelet). Sunucuda yaşayan sürüm repoya taşındı + yetki/CSS/l10n düzeltmeleri. Aynı gün sunucudaki karışık kurulum (1.0.6 + 1.7.x) temizlendi. |
+| 1.8.0 | 11 Ağu | **8 şablon + kategori filtresi + canlı önizleme** (mini çekmece & tam ekran modal), çalışan Kopyala. Yine sunucuda geliştirilmişti, yine eski taban üzerineydi → doğru tabana taşındı. Şablon HTML'i `style=`/`<button>` kullanmıyor (sanitizer siliyordu). |
 
 ---
 
@@ -514,6 +543,25 @@ Editörü listeden çıkar → tekrar gir                 (düğmeler tekrar giz
 Grubu editör yap, üyesiyle gir                      (grup üzerinden de yetki)
 Editör hesabıyla koleksiyon SİL                     ("admin gibi tam yetki" kararı)
 Silinmiş bir hesabı listeye yazmayı dene            (kaydedince elenmeli)
+
+── 1.8.0 şablon kategorileri & önizleme ──
+Filtre çipleri şablon listesini süzüyor mu          (9 çip / 8 şablon)
+Şablon başlığına tıkla                              (mini önizleme açılır, ikincisi öncekini kapatır)
+"Canlı Önizleme" → modal                            (içerik dolu; "Bu Şablonu Kullan" kart oluşturur)
+Önizlemedeki görsel yer tutucusuna tıkla            (HİÇBİR ŞEY olmamalı — dosya seçici açılmamalı)
+Tasarım şablonu oluştur → KAYDET → yenile           (palet renkleri kalmalı; griye dönerse sanitizer yedi)
+Kod bloğunda "Kopyala"                              (panoya kopyalar, "Kopyalandı" bildirimi)
+
+── 1.7.2 kart şablonları ──
+Sağ rayda iki sekme görünüyor mu                    (Kart Şablonları / İlgili Kartlar)
+Koleksiyon AÇMADAN şablona tıkla                    ("Önce bir koleksiyon aç", kart oluşmaz)
+Koleksiyon açıp şablona tıkla                       (kart düzenleme modunda açılır, içerik dolu)
+Bir BÖLÜM içindeyken şablona tıkla                  (kart o bölümün altına düşmeli, köke değil)
+Renkli kutular (Problem / Çözüm) renkli mi          (kx-callout CSS'i — düz metinse CSS düşmüş)
+Yer tutucuya DÜZENLEME modunda tıkla                (dosya seçici açılır, görsel yer tutucunun YERİNE geçer)
+Yer tutucuya OKUMA modunda tıkla                    (hiçbir şey olmamalı, imleç de değişmemeli)
+Yazma yetkisi OLMAYAN hesapla gir                   (şablon sekmesi hiç görünmemeli)
+Rol düğmesiyle Ziyaretçi'ye geç                     (şablon sekmesi kaybolur, Editör'e dönünce gelir)
 ```
 
 ---
@@ -521,8 +569,36 @@ Silinmiş bir hesabı listeye yazmayı dene            (kaydedince elenmeli)
 *4 Ağustos 2026 — v1.7.0: editör yetkisi. Kullanıcı kararı: yetki **uygulama geneli**
 (koleksiyon bazlı değil) ve editör **admin kadar yetkili**. `PermissionService` yazıldı,
 controller'daki tüm `isAdmin()` çağrıları oradan geçirildi, Yönetim → Bilgi Kartları ayar
-sayfası eklendi (`Settings/` + `admin.php/js/css`), 16 yeni test (toplam 60 yeşil).
-Sunucuya HENÜZ kurulmadı.*
+sayfası eklendi (`Settings/` + `admin.php/js/css`), 16 yeni test (toplam 60 yeşil).*
+
+*6 Ağustos 2026 — **1.7.1 canlı sunucuda**: `occ config:app:get nextlibrary
+installed_version` → `1.7.1`, `app:list` → enabled. Yerelde **2 commit push edilmemiş**
+(`main`, `origin/main`'in 2 ilerisinde); App Store'a yükleme durumu ayrı — paketler
+`nextcloud-app/nextlibrary-release-1.7.0/1.7.1.tar.gz` + `.sig` olarak hazır.*
+
+*11 Ağustos 2026 — v1.7.2: **Kart Şablonları** + sunucu kurtarma. Uygulama 500 veriyordu;
+sebep sunucudaki karışık kurulumdu (1.0.6 gövde + 1.7.x migration'ları → `Page` entity'si
+`parent_id` kolonunu tanımıyordu, bkz. Tuzaklar #8). Sunucuda yaşayan Kart Şablonları
+özelliği (repoda yoktu) indirilip 1.7.1 koduna taşındı; taşırken düzeltilenler: iç içe kart
+uyumu (`kind`/`parentId` gönderiliyor), yetkisiz kullanıcıya sekme+yer tutucu gizleme,
+eksik `.kx-callout` CSS'i, koleksiyon seçili değilken `colls[0]`'a yazma, İngilizce kaynak
+metin + `l10n`. Ayrıca sekme durumu (`railTab`) ayrı tutuldu — yetki state ile geldiği için
+panel yanlış sekmede kalıyordu. Sunucuya **tam temiz** kurulum yapıldı (önce mevcut app
+klasörünün tar yedeği alındı), 1.7.2 enabled, 60 test yeşil,
+`/api/state` 401, log temiz. **Yerel commit'lenmedi** — 9 dosya değişik durumda.*
+
+*11 Ağustos 2026 (aynı gün, ikinci tur) — v1.8.0: Kullanıcı şablon UI'ını **yine sunucuda**
+geliştirdi (kategori filtresi, mini + tam ekran önizleme, 8 şablon) ve yine ESKİ app.js
+üzerine yazmıştı (1885 satır; benim 1.7.2'm 2165). Olduğu gibi alınsa `parentId`(30 yer),
+`kind`, `openPages`, `scopeViewToUser` ve çöp kutusunun yarısı geri giderdi. Sunucudaki
+sürüm 1.0.6-tabanlı öncekiyle diff'lenip **yalnızca yeni iş** (+366/−83) 1.7.2 tabanına
+taşındı. Taşırken bulunan ve düzeltilen ölümcül kusur: şablon HTML'i 9 yerde `style=` ve
+bir `<button>` kullanıyordu — ikisi de sanitizer'da siliniyor, yani kart KAYDEDİLİNCE
+palet griye dönüp kopyala düğmesi yok oluyordu (bkz. Tuzaklar #10). Sınıflara taşındı,
+8 şablonun 8'i de sanitizer'dan kayıpsız geçtiği ölçülerek doğrulandı. Ayrıca önizleme
+içindeki yer tutucular yükleme tetikliyordu → dinleyici `#kx-body` ile kapsandı; Kopyala
+gerçekten çalışır hale getirildi (delege + pano API'si, güvensiz bağlamda seçim yedeği).
+60 test yeşil.*
 
 *Son güncelleme: 3 Ağustos 2026 — v1.5.0 kodu üzerinden oluşturuldu; aynı gün bir tur
 sorun giderme yapıldı (medya çöp toplayıcısı, rol düğmesinin kaldırılması, çöp kutusu

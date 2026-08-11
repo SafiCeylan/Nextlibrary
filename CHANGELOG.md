@@ -4,6 +4,53 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] - 2026-08-11
+
+### Added
+- **Eight card templates instead of five, grouped into categories.** The right-hand panel
+  now opens with a row of filter chips — code / API, executive, process, design, meeting,
+  profile, product and academic — so the right skeleton is one click away instead of a
+  scroll. The new templates bring their own building blocks: endpoint headers, parameter
+  tables, code blocks, KPI cards, numbered process steps, colour palettes, meeting headers,
+  skill tags and reference lists.
+- **Preview before you commit.** Clicking a template's header slides open a small preview
+  inside the card, and **Live preview** opens the full template in a large modal with a
+  **Use this template** button. Nothing is created until you ask for it.
+- Code blocks carry a working **Copy** control that puts the snippet on the clipboard.
+
+### Fixed
+- Template markup no longer relies on inline `style` attributes or `<button>` elements.
+  Both are removed by the server's HTML sanitiser, so a card looked correct while being
+  written and then lost its colour palette and copy control the moment it was saved. The
+  same styling now comes from classes, and all eight templates were verified to pass
+  through the sanitiser without losing a single tag or class.
+- Image placeholders inside a template preview no longer open the file picker. The preview
+  is not a page, so there was nothing to upload to.
+
+## [1.7.2] - 2026-08-11
+
+### Added
+- **Card templates in the right-hand panel.** Starting a card no longer means facing an
+  empty page: the right panel now has two tabs, and the first one offers five ready-made
+  skeletons — note & summary, idea & concept, definition / term, person & profile, and
+  project & task. Picking one creates the card already filled with headings, callouts, a
+  list and an image placeholder, ready to be overwritten.
+- Cards created from a template follow the same rule as every other card: they land inside
+  the section you are currently in, not at the top of the collection.
+- The image placeholder inside a template opens the file picker when clicked, and the
+  uploaded image replaces the placeholder itself instead of landing wherever the cursor
+  happened to be.
+
+### Fixed
+- The template panel and the image placeholder are hidden from accounts without writing
+  rights. Both used to be offered to every reader, and clicking them could only produce a
+  "not allowed" message.
+- Choosing a template with no collection open used to create the card in whichever
+  collection happened to be first. It now asks for a collection to be opened instead.
+- Callout boxes coming from a template (`kx-callout`) had no styling at all and were
+  rendered as plain paragraphs; the info, warning and success variants now look like
+  callouts in both light and dark mode.
+
 ## [1.7.1] - 2026-08-04
 
 ### Fixed

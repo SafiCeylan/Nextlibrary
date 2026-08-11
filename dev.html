@@ -52,9 +52,19 @@
         </aside>
         <main class="stage" id="stage"><div id="viewer"></div></main>
         <aside class="rail">
-          <h3>Related pages</h3>
-          <p class="sub">Other pages in the same collection.</p>
-          <div id="recs"></div>
+          <div class="rail-tabs" id="railTabs">
+            <button class="rail-tab active" id="railTabTmpl">📑 Card templates</button>
+            <button class="rail-tab" id="railTabRecs">🔗 Related cards</button>
+          </div>
+          <div class="rail-panel active" id="panelTmpl">
+            <p class="sub">Pick a template to create a card quickly:</p>
+            <div id="tmplList" class="tmpl-list"></div>
+          </div>
+          <div class="rail-panel" id="panelRecs">
+            <h3>Related pages</h3>
+            <p class="sub">Other pages in the same collection.</p>
+            <div id="recs"></div>
+          </div>
         </aside>
       </div>
       <div class="emoji-pop" id="emojiPop"></div>
@@ -98,6 +108,22 @@
             <div class="msec">Add group</div><div id="mGroups"></div>
           </div>
           <div class="m-foot"><button class="btn btn-ghost" id="membersBack">Back</button><button class="btn btn-primary" id="createColl">Create without members</button></div>
+        </div>
+      </div>
+      <div class="backdrop" id="mdTmplPreview">
+        <div class="modal modal-lg">
+          <div class="m-head">
+            <h3 id="mdTmplTitle"></h3>
+            <button class="m-close" data-close="mdTmplPreview">✕</button>
+          </div>
+          <div class="m-body">
+            <div class="tmpl-preview-meta" id="mdTmplMeta"></div>
+            <div class="tmpl-preview-stage doc" id="mdTmplStage"></div>
+          </div>
+          <div class="m-foot">
+            <button class="btn btn-ghost" data-close="mdTmplPreview">Close</button>
+            <button class="btn btn-primary" id="mdTmplUseBtn">🚀 Use this template</button>
+          </div>
         </div>
       </div>
       <div class="toast" id="toast"></div>

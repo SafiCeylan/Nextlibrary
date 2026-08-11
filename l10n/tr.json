@@ -258,7 +258,16 @@
         "Pick a file": "Dosya seç",
         "File linked": "Dosya bağlandı",
         "Could not open the file picker": "Dosya seçici açılamadı",
-        "The Nextcloud file picker is only available inside Nextcloud": "Dosya seçici yalnızca Nextcloud içinde çalışır"
+        "The Nextcloud file picker is only available inside Nextcloud": "Dosya seçici yalnızca Nextcloud içinde çalışır",
+        "Card templates": "Kart Şablonları",
+        "Related cards": "İlgili Kartlar",
+        "Pick a template to create a card quickly:": "Hızlı kart oluşturmak için şablon seçin:",
+        "Live preview": "Canlı Önizleme",
+        "Category": "Kategori",
+        "Use this template": "Bu Şablonu Kullan",
+        "Copied": "Kopyalandı",
+        "Open a collection first": "Önce bir koleksiyon aç",
+        "Card created from template": "Şablondan kart oluşturuldu"
     },
     "pluralForm": "nplurals=2; plural=(n != 1);"
 }

@@ -38,9 +38,24 @@
     <main class="stage" id="stage"><div id="viewer"></div></main>
 
     <aside class="rail">
-      <h3><?php p($l->t('Related pages')); ?></h3>
-      <p class="sub"><?php p($l->t('Other pages in the same collection.')); ?></p>
-      <div id="recs"></div>
+      <!-- Sağ ray iki sekmeli: hazır kart şablonları + ilgili kartlar. Şablon sekmesi
+           yalnızca yazma yetkisi olana gösterilir (renderTemplates gizler) — yetkisiz
+           kullanıcı tıklasa sunucudan yalnızca 403 dönerdi. -->
+      <div class="rail-tabs" id="railTabs">
+        <button class="rail-tab active" id="railTabTmpl">📑 <?php p($l->t('Card templates')); ?></button>
+        <button class="rail-tab" id="railTabRecs">🔗 <?php p($l->t('Related cards')); ?></button>
+      </div>
+
+      <div class="rail-panel active" id="panelTmpl">
+        <p class="sub"><?php p($l->t('Pick a template to create a card quickly:')); ?></p>
+        <div id="tmplList" class="tmpl-list"></div>
+      </div>
+
+      <div class="rail-panel" id="panelRecs">
+        <h3><?php p($l->t('Related pages')); ?></h3>
+        <p class="sub"><?php p($l->t('Other pages in the same collection.')); ?></p>
+        <div id="recs"></div>
+      </div>
     </aside>
   </div>
 
@@ -87,6 +102,25 @@
         <div class="msec"><?php p($l->t('Add group')); ?></div><div id="mGroups"></div>
       </div>
       <div class="m-foot"><button class="btn btn-ghost" id="membersBack"><?php p($l->t('Back')); ?></button><button class="btn btn-primary" id="createColl"><?php p($l->t('Create without members')); ?></button></div>
+    </div>
+  </div>
+
+  <!-- Şablon tam ekran önizlemesi. Kapatma düğmeleri ve arka plan tıklaması, uygulamanın
+       açılışta bağladığı genel [data-close] / .backdrop kancalarından geliyor. -->
+  <div class="backdrop" id="mdTmplPreview">
+    <div class="modal modal-lg">
+      <div class="m-head">
+        <h3 id="mdTmplTitle"></h3>
+        <button class="m-close" data-close="mdTmplPreview">✕</button>
+      </div>
+      <div class="m-body">
+        <div class="tmpl-preview-meta" id="mdTmplMeta"></div>
+        <div class="tmpl-preview-stage doc" id="mdTmplStage"></div>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close="mdTmplPreview"><?php p($l->t('Close')); ?></button>
+        <button class="btn btn-primary" id="mdTmplUseBtn">🚀 <?php p($l->t('Use this template')); ?></button>
+      </div>
     </div>
   </div>
 

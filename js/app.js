@@ -504,15 +504,32 @@ function pickImageFile(){
   inp.onchange=()=>{ const file=inp.files&&inp.files[0]; if(!file)return; if(file.size>15*1024*1024){toast(t('nextlibrary','Image is too large (over 15 MB)'));return;} downscaleImage(file,1400,dataUrl=>uploadImage(dataUrl)); };
   inp.click();
 }
+/* Şablon kartlarındaki görsel yer tutucusuna tıklanınca doldurulur: yükleme bitince
+   görsel, imlecin bulunduğu yere DEĞİL yer tutucunun yerine girer. Tıklama ile yükleme
+   arasında seçim kaybolduğu için yer tutucunun kendisini tutuyoruz. */
+let activePlaceholder=null;
 // Görseli sunucuya (NC appdata) yükle → dönen dosya adını /api/media/ URL'i olarak göm (base64 gömme yok)
 function uploadImage(dataUrl){
   const f=findPage(curPage); const cid=f?f.coll.id:(curColl||'');
-  if(!cid){ toast(t('nextlibrary','Open a collection or a page first')); return; }
+  if(!cid){ toast(t('nextlibrary','Open a collection or a page first')); activePlaceholder=null; return; }
   toast(t('nextlibrary','Uploading image …'));
   api('POST','/upload',{collectionId:cid,data:dataUrl})
-    .then(r=>{ if(r&&r.name){ const url=API_BASE+'/media/'+encodeURIComponent(r.collectionId||cid)+'/'+encodeURIComponent(r.name); insertAtSaved(`<img src="${esc(url)}" alt="">`,true); }
-               else { toast(t('nextlibrary','Could not upload the image')); } })
-    .catch(apiErr);
+    .then(r=>{ if(r&&r.name){
+                 const url=API_BASE+'/media/'+encodeURIComponent(r.collectionId||cid)+'/'+encodeURIComponent(r.name);
+                 // Yer tutucu hâlâ belgede duruyorsa onun yerine geç; kullanıcı bu arada
+                 // sayfayı değiştirdiyse (düğüm koptuysa) normal imleç akışına dön.
+                 const ph=activePlaceholder; activePlaceholder=null;
+                 if(ph&&ph.parentNode&&ROOT.contains(ph)){
+                   const img=document.createElement('img'); img.src=url; img.alt='';
+                   ph.parentNode.replaceChild(img,ph);
+                   const fp=findPage(curPage);
+                   if(fp&&el('kx-body')){ fp.page.html=sanitize(serializeBody()); flushPage(); }
+                 } else {
+                   insertAtSaved(`<img src="${esc(url)}" alt="">`,true);
+                 }
+               }
+               else { activePlaceholder=null; toast(t('nextlibrary','Could not upload the image')); } })
+    .catch(e=>{ activePlaceholder=null; apiErr(e); });
 }
 function downscaleImage(file,maxW,cb){
   const rd=new FileReader();
@@ -1433,6 +1450,431 @@ function openSwatch(anchor,list,kind,cb){
 }
 document.addEventListener('click',e=>{ const p=el('kxPop'); if(p&&!e.target.closest('#kxPop')&&!e.target.closest('[data-cmd=color]')&&!e.target.closest('[data-cmd=hilite]'))p.classList.remove('show'); });
 
+/* -------- Hazır Kart Şablonları (8 Farklı Tarz & Canlı Önizleme) -------- */
+const CARD_CATEGORIES = [
+  { id: 'all', label: 'Tümü' },
+  { id: 'dev', label: '💻 Kod / API' },
+  { id: 'executive', label: '📊 Yönetici' },
+  { id: 'sop', label: '🛠️ Süreç' },
+  { id: 'design', label: '🎨 Tasarım' },
+  { id: 'meeting', label: '📝 Toplantı' },
+  { id: 'profile', label: '👤 Profil' },
+  { id: 'product', label: '🚀 Ürün' },
+  { id: 'research', label: '📚 Akademik' }
+];
+
+let activeTmplCategory = 'all';
+
+const CARD_TEMPLATES = [
+  {
+    id: 'code_doc',
+    category: 'dev',
+    emoji: '💻',
+    title: 'Yazılım & API Dokümanı',
+    desc: 'REST API uç noktaları, parametre tablosu ve cURL/JSON kod örnekleri',
+    badge: 'Dev / API',
+    html: `<div class="kx-code-hero">
+  <div class="kx-api-endpoint">
+    <span class="kx-method-tag kx-post">POST</span>
+    <code class="kx-api-url">/api/v1/auth/login</code>
+    <span class="kx-status-pill">200 OK</span>
+  </div>
+</div>
+<h2>💻 API Dokümantasyonu</h2>
+<p>Bu uç nokta kullanıcı doğrulaması ve JWT token üretimi gerçekleştirir.</p>
+<div class="kx-callout kx-callout-info">
+  <b>🔑 Güvenlik Uyarısı:</b> Tüm isteklerde <code>Authorization: Bearer &lt;token&gt;</code> üst bilgisi zorunludur.
+</div>
+<h3>📋 İstek Parametreleri</h3>
+<table class="kx-table">
+  <thead>
+    <tr><th>Parametre</th><th>Tip</th><th>Zorunlu</th><th>Açıklama</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>username</code></td><td>String</td><td><span class="kx-badge-req">Zorunlu</span></td><td>Kullanıcı e-posta adresi</td></tr>
+    <tr><td><code>password</code></td><td>String</td><td><span class="kx-badge-req">Zorunlu</span></td><td>Minimum 8 karakter parola</td></tr>
+    <tr><td><code>remember_me</code></td><td>Boolean</td><td><span class="kx-badge-opt">Opsiyonel</span></td><td>30 günlük oturum süresi</td></tr>
+  </tbody>
+</table>
+<h3>💻 Örnek İstek (cURL)</h3>
+<div class="kx-code-block">
+  <div class="kx-cb-head"><span>Bash</span><span class="kx-cb-copy">Kopyala</span></div>
+  <pre><code>curl -X POST https://api.example.com/v1/auth/login \\
+  -H "Content-Type: application/json" \\
+  -d '{"username": "user@domain.com", "password": "SecretPassword123"}'</code></pre>
+</div>
+<h3>📤 Örnek Yanıt Payload (JSON)</h3>
+<div class="kx-code-block">
+  <div class="kx-cb-head"><span>JSON</span></div>
+  <pre><code>{
+  "status": "success",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expires_in": 86400
+}</code></pre>
+</div>`
+  },
+  {
+    id: 'exec_kpi',
+    category: 'executive',
+    emoji: '📊',
+    title: 'Yönetici & Performans Raporu',
+    desc: 'KPI metrik kartları, gelir grafiği ve stratejik karar listesi',
+    badge: 'Yönetici',
+    html: `<h2>📊 Çeyrek Dönem Yönetici Raporu</h2>
+<p>2026 Q3 büyüme metrikleri, operasyonel hedefler ve kritik performans göstergeleri.</p>
+<div class="kx-kpi-grid">
+  <div class="kx-kpi-card kx-kpi-cyan">
+    <div class="kx-kpi-label">Toplam Gelir (ARR)</div>
+    <div class="kx-kpi-val">₺4.82M</div>
+    <div class="kx-kpi-trend kx-up">▲ %18.4 (Geçen aya göre)</div>
+  </div>
+  <div class="kx-kpi-card kx-kpi-purple">
+    <div class="kx-kpi-label">Aktif Aboneler</div>
+    <div class="kx-kpi-val">12,450</div>
+    <div class="kx-kpi-trend kx-up">▲ +1,280 Yeni</div>
+  </div>
+  <div class="kx-kpi-card kx-kpi-green">
+    <div class="kx-kpi-label">Müşteri Memnuniyeti</div>
+    <div class="kx-kpi-val">%96.8</div>
+    <div class="kx-kpi-trend kx-up">▲ CSAT Puanı</div>
+  </div>
+  <div class="kx-kpi-card kx-kpi-amber">
+    <div class="kx-kpi-label">Churn Oranı</div>
+    <div class="kx-kpi-val">%1.2</div>
+    <div class="kx-kpi-trend kx-down">▼ %0.4 Düşüş</div>
+  </div>
+</div>
+<div class="kx-callout kx-callout-success">
+  <b>🚀 Stratejik Kazanç:</b> Q3 hedeflerinin %112'si planlanandan 2 hafta önce tamamlandı.
+</div>
+<h3>📌 Alınan Kararlar & Aksiyonlar</h3>
+<ul class="kx-check-list">
+  <li>✅ Enterprise segment için sunucu altyapısı kapasitesi 2 katına çıkarıldı.</li>
+  <li>✅ Pazarlama bütçesi dijital kanallara %25 oranında kaydırıldı.</li>
+  <li>⏳ Mobil uygulama yenileme projesi Q4 başına takvimlendi.</li>
+</ul>`
+  },
+  {
+    id: 'sop_workflow',
+    category: 'sop',
+    emoji: '🛠️',
+    title: 'SOP & Standart Süreç Rehberi',
+    desc: 'Numaralı adım adım iş akışı, güvenlik kontrolü ve prosedür kartı',
+    badge: 'Süreç / SOP',
+    html: `<div class="kx-sop-header">
+  <span class="kx-sop-badge">SOP-2026-08</span>
+  <span class="kx-sop-title">Sunucu Dağıtım & Yayınlama Prosedürü</span>
+  <span class="kx-sop-rev">Rev: 3.2</span>
+</div>
+<h2>🛠️ Süreç Adımları</h2>
+<div class="kx-sop-steps">
+  <div class="kx-sop-step">
+    <div class="kx-sop-num">1</div>
+    <div class="kx-sop-content">
+      <h4>Kod Kontrolü & Birleştirme</h4>
+      <p>Ana dala (main) girmeden önce tüm unit ve entegrasyon testlerinin geçtiğini doğrulayın.</p>
+      <div class="kx-callout kx-callout-warning"><b>⚠️ Ön Koşul:</b> En az 2 senior geliştirici onayı (PR Approve) gereklidir.</div>
+    </div>
+  </div>
+  <div class="kx-sop-step">
+    <div class="kx-sop-num">2</div>
+    <div class="kx-sop-content">
+      <h4>Staging Ortamı Doğrulaması</h4>
+      <p>Build artefact'lerini staging sunucusuna deploy edin ve duman (smoke) testlerini çalıştırın.</p>
+    </div>
+  </div>
+  <div class="kx-sop-step">
+    <div class="kx-sop-num">3</div>
+    <div class="kx-sop-content">
+      <h4>Canlıya Geçiş (Production Deploy)</h4>
+      <p>Canlı dağıtım tetikleyiciyi başlatın. Trafik kademeli olarak (%10 -> %50 -> %100) aktarılacaktır.</p>
+      <div class="kx-callout kx-callout-info"><b>💡 Geri Dönüş Planı:</b> Hata durumunda <code>./rollback.sh --version previous</code> komutunu çalıştırın.</div>
+    </div>
+  </div>
+</div>`
+  },
+  {
+    id: 'design_moodboard',
+    category: 'design',
+    emoji: '🎨',
+    title: 'Tasarım & Kreatif Moodboard',
+    desc: 'Renk paleti renk kartları, tipografi özellikleri ve görsel kılavuz',
+    badge: 'Tasarım',
+    html: `<div class="kx-img-placeholder" title="Kapak Görseli Yükle"><div class="kx-ip-icon">🎨</div><div class="kx-ip-text">Moodboard / Kapak Görseli Yükle (Tıkla)</div></div>
+<h2>🎨 Marka & UI Tasarım Sistem Rehberi</h2>
+<p>Proje görsel dili, renk paleti ve tipografik hiyerarşi standartları.</p>
+<h3>🎨 Renk Paleti (Palette)</h3>
+<div class="kx-palette-grid">
+  <div class="kx-swatch kx-sw-brand"><span>Primary</span><code>#0082C9</code></div>
+  <div class="kx-swatch kx-sw-purple"><span>Purple Accent</span><code>#7C6FE0</code></div>
+  <div class="kx-swatch kx-sw-green"><span>Success Cyan</span><code>#00FF88</code></div>
+  <div class="kx-swatch kx-sw-dark"><span>Ink Slate</span><code>#1B2733</code></div>
+  <div class="kx-swatch kx-sw-light"><span>Surface 2</span><code>#F0F3F6</code></div>
+</div>
+<h3>✍️ Tipografi & Yazı Tipleri</h3>
+<div class="kx-typo-box">
+  <div class="kx-typo-item"><b>Başlıklar:</b> Rajdhani / IBM Plex Sans (Bold 700)</div>
+  <div class="kx-typo-item"><b>Gövde Metni:</b> Segoe UI / Inter (Regular 400)</div>
+  <div class="kx-typo-item"><b>Kod & Metrikler:</b> JetBrains Mono / Space Mono</div>
+</div>
+<h3>🖼️ Görsel Varlıklar</h3>
+<div class="kx-media-grid">
+  <div class="kx-img-placeholder kx-img-sm"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">UI Mockup 1</div></div>
+  <div class="kx-img-placeholder kx-img-sm"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">UI Mockup 2</div></div>
+</div>`
+  },
+  {
+    id: 'meeting_notes',
+    category: 'meeting',
+    emoji: '📝',
+    title: 'Toplantı Notu & Aksiyon Takibi',
+    desc: 'Toplantı künyesi, alınan kararlar ve görev dağılım tablosu',
+    badge: 'Toplantı',
+    html: `<div class="kx-meeting-header">
+  <div class="kx-mh-item">📅 <b>Tarih:</b> 11 Ağustos 2026 | 10:30</div>
+  <div class="kx-mh-item">📍 <b>Lokasyon:</b> Online (Teams)</div>
+  <div class="kx-mh-chips">
+    <span class="kx-chip">👤 Safi M.</span>
+    <span class="kx-chip">👤 Ahmet K.</span>
+    <span class="kx-chip">👤 Zeynep T.</span>
+  </div>
+</div>
+<h2>📝 Ürün Haftalık Senkronizasyonu</h2>
+<div class="kx-callout kx-callout-info">
+  <b>🎯 Toplantı Amacı:</b> Q4 yol haritası önceliklendirmesi ve yeni UI şablonlarının incelenmesi.
+</div>
+<h3>💡 Alınan Kritik Kararlar</h3>
+<blockquote class="kx-quote">"Yeni kart şablonları tasarımı canlı önizleme paneliyle entegre edilecek ve kullanıcı onayına sunulacak."</blockquote>
+<h3>📋 Aksiyon Takip Listesi</h3>
+<table class="kx-table">
+  <thead>
+    <tr><th>Görev / Aksiyon</th><th>Sorumlu</th><th>Son Tarih</th><th>Durum</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Önizleme modal bileşeni kodlanacak</td><td>Safi M.</td><td>12 Ağu</td><td><span class="kx-badge-req">Devam Ediyor</span></td></tr>
+    <tr><td>CSS tasarım tokenları güncellenecek</td><td>Ahmet K.</td><td>13 Ağu</td><td><span class="kx-badge-opt">Beklemede</span></td></tr>
+    <tr><td>Kullanıcı testleri tamamlanacak</td><td>Zeynep T.</td><td>15 Ağu</td><td><span class="kx-badge-opt">Beklemede</span></td></tr>
+  </tbody>
+</table>`
+  },
+  {
+    id: 'user_profile',
+    category: 'profile',
+    emoji: '👤',
+    title: 'Kişi & Profil Kartı',
+    desc: 'Profil fotoğrafı, iletişim etiketleri, uzmanlık alanı ve sorumluluklar',
+    badge: 'Profil',
+    html: `<div class="kx-img-placeholder kx-img-avatar" title="Profil Fotoğrafı Yükle"><div class="kx-ip-icon">👤</div><div class="kx-ip-text">Profil Fotoğrafı Yükle</div></div>
+<h2 class="kx-center">Safi M. Ceylan</h2>
+<p class="kx-center kx-subtle"><b>Kıdemli Yazılım Mimarı & UI/UX Tasarımcısı</b></p>
+<div class="kx-profile-contacts">
+  <span class="kx-contact-pill">📧 safi@example.com</span>
+  <span class="kx-contact-pill">📱 +90 532 000 00 00</span>
+  <span class="kx-contact-pill">📍 İstanbul, TR</span>
+</div>
+<h3>🚀 Yetkinlikler & Uzmanlıklar</h3>
+<div class="kx-skills-grid">
+  <span class="kx-skill-tag">Nextcloud Plugin Dev</span>
+  <span class="kx-skill-tag">Vue.js / React</span>
+  <span class="kx-skill-tag">PHP / Symfony</span>
+  <span class="kx-skill-tag">UI/UX Design System</span>
+  <span class="kx-skill-tag">REST API Architecture</span>
+</div>
+<h3>📌 Güncel Projeler & Sorumluluklar</h3>
+<ul>
+  <li><b>NextLibrary:</b> Bilgi kartları ve şablon sistemi mimarı</li>
+  <li><b>CloudImport:</b> Bulut depolama entegrasyon sağlayıcısı</li>
+</ul>`
+  },
+  {
+    id: 'product_spec',
+    category: 'product',
+    emoji: '🚀',
+    title: 'Ürün Spesifikasyonu & Özellik Kartı',
+    desc: 'Kullanıcı hikayesi (User story), kabul kriterleri ve tel kafes görsel alanı',
+    badge: 'Ürün',
+    html: `<div class="kx-img-placeholder" title="Wireframe / Tel Kafes Görseli Yükle"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">Wireframe / Tel Kafes Görseli Yükle</div></div>
+<h2>🚀 Özellik: Canlı Şablon Önizleme Modülü</h2>
+<div class="kx-callout kx-callout-success">
+  <b>👤 User Story:</b> Bir kullanıcı olarak, yeni kart oluşturmadan önce şablonun tam görünümünü sağ tarafta canlı önizlemek istiyorum, böylece ihtiyacıma en uygun düzeni anında seçebilirim.
+</div>
+<h3>✅ Kabul Kriterleri (Acceptance Criteria)</h3>
+<ul class="kx-check-list">
+  <li>✅ Kullanıcı sağ paneldeki şablona tıkladığında veya önizleme butonuna bastığında canlı mini önizleme açılır.</li>
+  <li>✅ Şablonlar kategorilere göre (Tümü, Dev, Yönetici, SOP, Tasarım vb.) filtrelenebilir.</li>
+  <li>✅ Önizleme alanından "Bu Şablonu Kullan" butonuna tek tıkla yeni kart oluşturulur.</li>
+</ul>
+<h3>🎯 Hedef Metrikler & Etki</h3>
+<table class="kx-table">
+  <thead><tr><th>Metrik</th><th>Mevcut</th><th>Hedef</th></tr></thead>
+  <tbody>
+    <tr><td>Şablon Kullanım Oranı</td><td>%22</td><td>%65+</td></tr>
+    <tr><td>Kart Oluşturma Süresi</td><td>45 sn</td><td>10 sn</td></tr>
+  </tbody>
+</table>`
+  },
+  {
+    id: 'academic_ref',
+    category: 'research',
+    emoji: '📚',
+    title: 'Sözlük & Araştırma Makalesi',
+    desc: 'Kavram açıklamaları, alıntılar ve literatür referans bağlantıları',
+    badge: 'Akademik',
+    html: `<h2>📚 Kavram: Bilgi Grafiği (Knowledge Graph)</h2>
+<div class="kx-callout kx-callout-info">
+  <b>💡 Tanım:</b> Nesneler, kavramlar ve bunların arasındaki ilişkileri anlamsal (semantic) ağ yapısında temsil eden veritabanı modelidir.
+</div>
+<blockquote class="kx-quote">
+  "Bilgi kartları arasındaki ilişkisel bağlantılar, verinin sadece saklanmasını değil, keşfedilmesini ve ilişkilendirilmesini sağlar."
+</blockquote>
+<h3>🔍 Ana Bileşenler</h3>
+<ul>
+  <li><b>Varlıklar (Entities):</b> Kartlar, kişiler, dokümanlar.</li>
+  <li><b>İlişkiler (Relations):</b> "İçerir", "Atıfta Bulunur", "Düzenleyen".</li>
+  <li><b>Öznitelikler (Attributes):</b> Oluşturma tarihi, şablon tipi, etiketler.</li>
+</ul>
+<h3>🔗 Atıf Yapılan Dokümanlar</h3>
+<div class="kx-ref-links">
+  <a href="#" class="kx-ref-card">📄 W3C Resource Description Framework (RDF)</a>
+  <a href="#" class="kx-ref-card">📄 Neo4j Graph Database Fundamentals</a>
+</div>`
+  }
+];
+
+/* Yazma yetkisi olmayan hesap şablonları hiç görmez: aksi halde tıklayınca yalnızca
+   403 dönen ölü bir arayüz olurdu (uygulamanın geri kalanında da yazma düğmeleri gizli). */
+function mayUseTemplates(){ return canCreate && !previewAsVisitor; }
+
+/* Kullanıcının seçtiği sekme. Çizimden AYRI tutuluyor: renderTemplates açılışta bir kez
+   yetkisiz varsayımıyla koşuyor (canCreate ancak state ile geliyor) ve o an paneli
+   "ilgili kartlar"a alıyor. Seçim burada saklanmazsa yetki gelince sekmeler geri gelir
+   ama panel yanlış sekmede kalırdı. */
+let railTab='tmpl';
+
+function showRailPanel(which){
+  const tabT=el('railTabTmpl'), tabR=el('railTabRecs'), panT=el('panelTmpl'), panR=el('panelRecs');
+  if(!panT||!panR)return;
+  const tmpl=which==='tmpl';
+  if(tabT)tabT.classList.toggle('active',tmpl);
+  if(tabR)tabR.classList.toggle('active',!tmpl);
+  panT.classList.toggle('active',tmpl);
+  panR.classList.toggle('active',!tmpl);
+}
+
+/* Kullanıcı seçimi: hem çizer hem hatırlar. */
+function selectRailTab(which){ railTab=which; showRailPanel(which); }
+
+function wireRailTabs(){
+  const tabT=el('railTabTmpl'), tabR=el('railTabRecs');
+  if(tabT)tabT.onclick=()=>selectRailTab('tmpl');
+  if(tabR)tabR.onclick=()=>selectRailTab('recs');
+}
+
+function renderTemplates(){
+  const box=el('tmplList'); if(!box)return;
+  const tabs=el('railTabs');
+  if(!mayUseTemplates()){
+    // Sekme şeridini tamamen kaldır ve "ilgili kartlar" panelini tek panel olarak bırak.
+    // railTab'a DOKUNMA: yetki sonradan gelirse kullanıcı seçtiği sekmeye dönebilsin.
+    if(tabs)tabs.style.display='none';
+    box.innerHTML='';
+    showRailPanel('recs');
+    return;
+  }
+  if(tabs)tabs.style.display='';
+  showRailPanel(railTab);
+
+  const filtered=activeTmplCategory==='all'
+    ? CARD_TEMPLATES
+    : CARD_TEMPLATES.filter(x=>x.category===activeTmplCategory);
+
+  const filtersHtml='<div class="tmpl-filters">'+
+    CARD_CATEGORIES.map(c=>`<button class="tmpl-filter ${activeTmplCategory===c.id?'active':''}" data-cat="${esc(c.id)}">${esc(c.label)}</button>`).join('')+
+    '</div>';
+
+  // Mini önizleme şablonun KENDİ sabit HTML'i — kullanıcı girdisi değil, bu yüzden
+  // doğrudan basılıyor. (Kaydedilen sayfa gövdesi ayrıca sanitize'den geçiyor.)
+  const listHtml=filtered.map(x=>`
+    <div class="tmpl-card-wrap" data-tmpl="${esc(x.id)}">
+      <div class="tmpl-card-head" data-act="toggle-pv">
+        <span class="tmpl-icon">${x.emoji}</span>
+        <span class="tmpl-info">
+          <span class="tmpl-title">${esc(x.title)} <span class="tmpl-badge">${esc(x.badge)}</span></span>
+          <span class="tmpl-desc">${esc(x.desc)}</span>
+        </span>
+      </div>
+      <div class="tmpl-actions">
+        <button class="tmpl-btn-pv" data-act="full-pv">👁️ ${esc(t('nextlibrary','Live preview'))}</button>
+        <button class="tmpl-btn-add" data-act="use">＋ ${esc(t('nextlibrary','Create'))}</button>
+      </div>
+      <div class="tmpl-mini-preview">${x.html}</div>
+    </div>`).join('');
+
+  box.innerHTML=filtersHtml+listHtml;
+
+  box.querySelectorAll('.tmpl-filter').forEach(btn=>{
+    btn.onclick=e=>{ e.stopPropagation(); activeTmplCategory=btn.dataset.cat; renderTemplates(); };
+  });
+
+  box.querySelectorAll('.tmpl-card-wrap').forEach(wrap=>{
+    const tp=CARD_TEMPLATES.find(x=>x.id===wrap.dataset.tmpl); if(!tp)return;
+    const head=wrap.querySelector('[data-act="toggle-pv"]');
+    const mini=wrap.querySelector('.tmpl-mini-preview');
+    if(head&&mini){
+      head.onclick=()=>{
+        const wasOpen=mini.classList.contains('open');
+        box.querySelectorAll('.tmpl-mini-preview').forEach(m=>m.classList.remove('open'));
+        if(!wasOpen)mini.classList.add('open');
+      };
+    }
+    const pv=wrap.querySelector('[data-act="full-pv"]');
+    if(pv)pv.onclick=e=>{ e.stopPropagation(); openTemplateFullPreview(tp); };
+    const add=wrap.querySelector('[data-act="use"]');
+    if(add)add.onclick=e=>{ e.stopPropagation(); addPageFromTemplate(tp); };
+  });
+}
+
+/* Tam ekran önizleme. Kapatma/arka plan tıklaması main.php'deki statik [data-close]
+   ve .backdrop kancalarıyla zaten bağlı — burada yalnızca içerik ve "kullan" düğmesi. */
+function openTemplateFullPreview(tmpl){
+  const md=el('mdTmplPreview'), stage=el('mdTmplStage');
+  if(!md||!stage)return;
+  const title=el('mdTmplTitle'), meta=el('mdTmplMeta'), use=el('mdTmplUseBtn');
+  if(title)title.textContent='🔍 '+tmpl.emoji+' '+tmpl.title;
+  if(meta)meta.innerHTML='<span><b>'+esc(t('nextlibrary','Category'))+':</b> '+esc(tmpl.badge)+'</span> <span>'+esc(tmpl.desc)+'</span>';
+  stage.innerHTML=tmpl.html;
+  if(use)use.onclick=()=>{ hide('mdTmplPreview'); addPageFromTemplate(tmpl); };
+  show('mdTmplPreview');
+}
+
+/* Şablondan kart oluştur. addPage() ile aynı sözleşme: kart, açık koleksiyonun içinde
+   ve bulunulan klasörün ALTINA eklenir (1.1.0 iç içe kartlar). Koleksiyon seçili
+   değilken sessizce colls[0]'a yazılmıyor — kart, kullanıcının baktığı yerden başka
+   bir koleksiyonda beliriyordu. */
+function addPageFromTemplate(tmpl){
+  const c=getColl(curColl);
+  if(!c){ toast(t('nextlibrary','Open a collection first')); return; }
+  if(!canEdit(c)){ toast(t('nextlibrary','You are not allowed to do this — ask an administrator for editing rights')); return; }
+  const f=findPage(curPage);
+  // Açık kart bir bölümse onun içine, normal bir kartsa kardeşi olarak, yoksa köke.
+  let parentId='0';
+  if(f&&f.coll.id===c.id)parentId=f.page.kind==='folder'?f.page.id:(f.page.parentId||'0');
+  api('POST','/collections/'+c.id+'/pages',{
+    emoji:tmpl.emoji||'📄', title:tmpl.title||'', html:tmpl.html||'',
+    kind:'page', parentId:parentId==='0'?0:Number(parentId)
+  }).then(p=>{
+    // addPage() ile aynı gerekçe: buradan sonrası yalnızca çizim; hatası "kaydedilemedi"
+    // sanılmasın diye ayrı yakalanır.
+    try{
+      const np={id:String(p.id),parentId:String(p.parentId||0),kind:p.kind==='folder'?'folder':'page',emoji:p.emoji||tmpl.emoji||'📄',icon:p.icon||'',title:p.title||tmpl.title||'',html:p.html||tmpl.html||'',sort:p.sort||0};
+      c.pages.push(np); openColls.add(c.id);
+      if(np.parentId!=='0')openPages.add(np.parentId);
+      openPage(np.id,true);   // şablon kartı doğrudan düzenleme modunda açılır
+      toast(t('nextlibrary','Card created from template'));
+    }catch(err){ try{console.error('[NextLibrary render]',err);}catch(_){} }
+  }).catch(apiErr);
+}
+
 /* NOT: Kelime skorlamalı "ilgili sayfa" mantığı kaldırıldı. Koleksiyonun her yerinden
    kart öneriyordu; artık hem sağ panel hem sayfa altı yalnızca bulunulan klasörün
    kartlarını gösteriyor (childrenOf). */
@@ -1909,7 +2351,7 @@ function updateRoleBtn(){
   b.style.display=canCreate?'':'none';
   b.textContent=previewAsVisitor?'👁 '+t('nextlibrary','Visitor'):'✏️ '+t('nextlibrary','Editor');
 }
-el('roleBtn').onclick=()=>{ previewAsVisitor=!previewAsVisitor; LS.set('previewAsVisitor',previewAsVisitor); if(previewAsVisitor)editing=false; updateRoleBtn(); renderTree(el('kx-search').value); renderViewer(); renderRecs(); toast(previewAsVisitor?t('nextlibrary','Visitor view — read only'):t('nextlibrary','Back to editor mode')); };
+el('roleBtn').onclick=()=>{ previewAsVisitor=!previewAsVisitor; LS.set('previewAsVisitor',previewAsVisitor); if(previewAsVisitor)editing=false; updateRoleBtn(); renderTree(el('kx-search').value); renderViewer(); renderRecs(); renderTemplates(); toast(previewAsVisitor?t('nextlibrary','Visitor view — read only'):t('nextlibrary','Back to editor mode')); };
 updateRoleBtn();
 
 /* -------- Yardımcı -------- */
@@ -1923,6 +2365,47 @@ let toastT;function toast(t){const e=el('toast');e.textContent=t;e.classList.add
 
 /* -------- Başlat -------- */
 { const v0=viewer(); if(v0)v0.innerHTML=`<div class="rail-empty" style="padding:48px 20px;text-align:center">${esc(t('nextlibrary','Loading …'))}</div>`; }
+
+/* Şablon gövdesindeki görsel yer tutucusu. Tek bir delege dinleyici: yer tutucular
+   her renderViewer'da yeniden basıldığı için tek tek bağlamak kopardı.
+   YALNIZCA düzenleme modunda ve yazma yetkisi varken çalışır — okuyan kullanıcıya
+   dosya seçici açıp ardından 403 vermek yanlış bir sözdü (CSS de imleci ona göre verir). */
+ROOT.addEventListener('click',e=>{
+  const ph=e.target.closest('.kx-img-placeholder'); if(!ph)return;
+  // Aynı yer tutucu işaretlemesi şablon ÖNİZLEMELERİNDE de var (sağ raydaki mini
+  // önizleme ve tam ekran modal). Oradaki tıklama yükleme başlatmamalı: kullanıcı
+  // henüz kart oluşturmadı, yükleyecek bir sayfa yok → yalnızca belge gövdesi.
+  if(!ph.closest('#kx-body'))return;
+  const f=findPage(curPage);
+  if(!editing||!f||!canEdit(f.coll))return;
+  activePlaceholder=ph;
+  pickImageFile();
+});
+
+/* Kod bloğundaki "Kopyala". Şablonda <button> DEĞİL <span>: BUTTON sanitizer'ın DROP
+   listesinde, yani kart kaydedilir kaydedilmez içeriğiyle birlikte siliniyordu. SPAN +
+   class hayatta kalıyor, tıklaması buradan delege ediliyor — hem önizlemede hem
+   kaydedilmiş kartta çalışır. */
+ROOT.addEventListener('click',e=>{
+  const btn=e.target.closest('.kx-cb-copy'); if(!btn)return;
+  const pre=btn.closest('.kx-code-block')&&btn.closest('.kx-code-block').querySelector('pre');
+  if(!pre)return;
+  const done=()=>toast(t('nextlibrary','Copied'));
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(pre.innerText).then(done,()=>{});
+    return;
+  }
+  // Pano API'si yoksa (güvensiz bağlam / eski tarayıcı) seçim üzerinden kopyala
+  try{
+    const r=document.createRange(); r.selectNodeContents(pre);
+    const s=getSelection(); s.removeAllRanges(); s.addRange(r);
+    document.execCommand('copy'); s.removeAllRanges(); done();
+  }catch(_){}
+});
+
+wireRailTabs();
+renderTemplates();   // canCreate henüz bilinmiyor → yetkisiz varsayılır, state gelince tazelenir
+
 loadState(true).then(()=>{
   // Kimlik ancak state ile kesinleşir (OC.getCurrentUser okunamamış olabilir) → hesap
   // değişimi kontrolünü gerçek kimlikle şimdi yap.
@@ -1933,7 +2416,7 @@ loadState(true).then(()=>{
   if(curColl)openColls.add(curColl);
   // canCreate ancak state geldikten sonra bilinir → yazma yetkisine bağlı düğmeleri şimdi tazele
   updateRoleBtn();
-  renderTree(); renderViewer(); renderRecs(); updateBackBtnVisibility();
+  renderTree(); renderViewer(); renderRecs(); renderTemplates(); updateBackBtnVisibility();
 });
 setInterval(updateTreeTimes,60000); // "x dk önce" etiketlerini canlı tut
 
