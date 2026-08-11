@@ -4,6 +4,38 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.1] - 2026-08-11
+
+### Fixed
+- **The profile and meeting templates carried a real person's details.** A name, an email
+  address, a phone number and a city had been left in the sample content, so every
+  installation showed them as the starting point of a profile card. They are now neutral
+  placeholders — "İsim Soyisim", "ad.soyad@example.com", "+90 5XX XXX XX XX", "Şehir,
+  Ülke" — and the meeting template lists "Katılımcı 1-3" instead of named attendees.
+
+## [1.9.0] - 2026-08-11
+
+### Fixed
+- **A photo added to the profile template came out as a large square instead of a round
+  avatar.** The placeholder carried the shape, and replacing it with the uploaded image
+  threw that away, leaving a bare `<img>` that fell back to full width. The slot's shape
+  now travels to the image, so a profile photo stays a circle, mockups keep their frame,
+  and a banner stays full width.
+- Uploaded images no longer carry an empty `alt`. The placeholder's own wording ("Profile
+  photo", "UI Mockup 1", …) becomes the description, so a screen reader has something to
+  read.
+
+### Added
+- **Choose which part of a photo is shown.** Picking a photo for a template slot now opens
+  a positioning screen: drag the photo, zoom in, and the outlined area — a circle for a
+  profile photo — is what ends up in the card. For slots that are not round, **Whole image**
+  skips cropping entirely, so a tall photo is not forced into a wide frame.
+- The crop is written into the pixels rather than into the markup, so it survives saving
+  and the uploaded file is only as large as the slot needs (a profile photo is now 400×400
+  instead of a downscaled full-size image).
+- Images picked up a frame that suits their slot: a ring in the theme colour around a
+  profile photo, a bordered card around design mockups, and nothing extra around a banner.
+
 ## [1.8.0] - 2026-08-11
 
 ### Added

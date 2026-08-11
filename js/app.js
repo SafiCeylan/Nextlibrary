@@ -499,15 +499,116 @@ function insertAtSaved(htmlStr,isMedia){
   }
   const f=findPage(curPage); if(f){ f.page.html=sanitize(serializeBody()); flushPage(); }
 }
+/* -------- Görsel yuvaları --------
+   Şablondaki yer tutucunun sınıfı, oraya konacak görselin biçimini belirler. Yer tutucu
+   <img> ile değiştirilirken sınıfları ATILIYORDU: yuvarlak profil yuvası kocaman bir
+   kareye dönüşüyordu. Artık yuva biçimi görsele taşınıyor ve kırpma canvas'ta piksele
+   işleniyor — `style` sanitizer'da silindiği için konumu markup'ta saklamak mümkün değil. */
+const IMG_SLOTS={
+  avatar:{cls:'kx-fig-avatar', w:400, h:400,  round:true },   // profil kartı
+  sm:    {cls:'kx-fig-sm',     w:800, h:500,  round:false},   // tasarım mockup ızgarası
+  wide:  {cls:'kx-fig',        w:1400,h:788,  round:false}    // serbest / banner
+};
+function slotOf(ph){
+  if(!ph||!ph.classList)return IMG_SLOTS.wide;
+  if(ph.classList.contains('kx-img-avatar'))return IMG_SLOTS.avatar;
+  if(ph.classList.contains('kx-img-sm'))return IMG_SLOTS.sm;
+  return IMG_SLOTS.wide;
+}
+/* Yer tutucu metni görselin alt yazısı olur: boş alt="" ekran okuyucuya hiçbir şey
+   söylemiyordu. */
+function slotAlt(ph){
+  const t2=ph&&ph.querySelector&&ph.querySelector('.kx-ip-text');
+  return t2?t2.textContent.trim():'';
+}
+
 function pickImageFile(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='image/png,image/jpeg,image/gif,image/webp';
-  inp.onchange=()=>{ const file=inp.files&&inp.files[0]; if(!file)return; if(file.size>15*1024*1024){toast(t('nextlibrary','Image is too large (over 15 MB)'));return;} downscaleImage(file,1400,dataUrl=>uploadImage(dataUrl)); };
+  inp.onchange=()=>{
+    const file=inp.files&&inp.files[0]; if(!file)return;
+    if(file.size>15*1024*1024){toast(t('nextlibrary','Image is too large (over 15 MB)'));return;}
+    // Yer tutucudan geliyorsa önce konumlandırma ekranı; serbest eklemede eski akış.
+    if(activePlaceholder)openCropDialog(file,slotOf(activePlaceholder));
+    else downscaleImage(file,1400,dataUrl=>uploadImage(dataUrl));
+  };
   inp.click();
+}
+
+/* -------- Kırpma / konumlandırma ekranı --------
+   Kullanıcı görselin hangi bölümünün görüneceğini seçer; "Tüm görsel" derse kırpma
+   yapılmaz, yalnızca küçültülür (portre bir fotoğrafı zorla banner oranına sokmamak için). */
+let crop=null;   // {img, slot, scale, min, ox, oy, fit, pv}
+function openCropDialog(file,slot){
+  const rd=new FileReader();
+  rd.onerror=()=>toast(t('nextlibrary','Could not read the file'));
+  rd.onload=()=>{
+    const img=new Image();
+    img.onerror=()=>toast(t('nextlibrary','Could not read the image'));
+    img.onload=()=>{
+      const cv=el('cropCanvas'); if(!cv){ // ekran yoksa eski akışa düş
+        downscaleImage(file,1400,d=>uploadImage(d)); return; }
+      // Önizleme, yuva oranını korur; en fazla 380px genişlik.
+      const pw=Math.min(380,slot.w), ph2=Math.round(pw*slot.h/slot.w);
+      cv.width=pw; cv.height=ph2;
+      const stage=el('cropStage'); if(stage){stage.style.width=pw+'px';stage.style.height=ph2+'px';}
+      const mask=el('cropMask'); if(mask)mask.classList.toggle('round',!!slot.round);
+      crop={img:img,slot:slot,pv:pw/slot.w,fit:false,scale:1,min:1,ox:0,oy:0};
+      cropReset();
+      const hint=el('cropHint');
+      if(hint)hint.textContent=slot.round
+        ? t('nextlibrary','Drag the photo to choose the part that stays inside the circle.')
+        : t('nextlibrary','Drag the photo to choose the visible part.');
+      // Yuvarlak yuvada "tüm görsel" anlamsız (daire her zaman kırpar) → gizle
+      const modes=el('cropModes'); if(modes)modes.style.display=slot.round?'none':'';
+      show('mdCrop');
+    };
+    img.src=rd.result;
+  };
+  rd.readAsDataURL(file);
+}
+
+/* Kapsayan (cover) ölçek: görsel yuvayı her zaman doldurmalı, boş alan kalmamalı. */
+function cropReset(){
+  const c=crop; if(!c)return;
+  c.min=Math.max(c.slot.w/c.img.naturalWidth, c.slot.h/c.img.naturalHeight);
+  c.scale=c.min;
+  const dw=c.img.naturalWidth*c.scale, dh=c.img.naturalHeight*c.scale;
+  c.ox=(c.slot.w-dw)/2; c.oy=(c.slot.h-dh)/2;   // ortala
+  const z=el('cropZoom'); if(z)z.value='100';
+  cropDraw();
+}
+function cropClamp(){
+  const c=crop;
+  const dw=c.img.naturalWidth*c.scale, dh=c.img.naturalHeight*c.scale;
+  c.ox=Math.min(0,Math.max(c.slot.w-dw,c.ox));
+  c.oy=Math.min(0,Math.max(c.slot.h-dh,c.oy));
+}
+function cropDraw(){
+  const c=crop; if(!c)return;
+  const cv=el('cropCanvas'); if(!cv)return;
+  const ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,cv.width,cv.height);
+  cropClamp();
+  ctx.drawImage(c.img, c.ox*c.pv, c.oy*c.pv,
+    c.img.naturalWidth*c.scale*c.pv, c.img.naturalHeight*c.scale*c.pv);
+}
+/* Seçilen alanı yuva çözünürlüğünde piksele işler. */
+function cropOutput(){
+  const c=crop;
+  const cv=document.createElement('canvas');
+  cv.width=c.slot.w; cv.height=c.slot.h;
+  const ctx=cv.getContext('2d');
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.drawImage(c.img, c.ox, c.oy, c.img.naturalWidth*c.scale, c.img.naturalHeight*c.scale);
+  return cv.toDataURL('image/jpeg',0.85);
 }
 /* Şablon kartlarındaki görsel yer tutucusuna tıklanınca doldurulur: yükleme bitince
    görsel, imlecin bulunduğu yere DEĞİL yer tutucunun yerine girer. Tıklama ile yükleme
    arasında seçim kaybolduğu için yer tutucunun kendisini tutuyoruz. */
 let activePlaceholder=null;
+/* Kırpma ekranında "Tüm görsel" seçilirse yuvanın oranı zorlanmaz → eklenecek görselin
+   sınıfı orada belirlenip burada bekletilir (yükleme async). */
+let pendingFigCls=null;
 // Görseli sunucuya (NC appdata) yükle → dönen dosya adını /api/media/ URL'i olarak göm (base64 gömme yok)
 function uploadImage(dataUrl){
   const f=findPage(curPage); const cid=f?f.coll.id:(curColl||'');
@@ -520,7 +621,12 @@ function uploadImage(dataUrl){
                  // sayfayı değiştirdiyse (düğüm koptuysa) normal imleç akışına dön.
                  const ph=activePlaceholder; activePlaceholder=null;
                  if(ph&&ph.parentNode&&ROOT.contains(ph)){
-                   const img=document.createElement('img'); img.src=url; img.alt='';
+                   const img=document.createElement('img'); img.src=url;
+                   // Yuvanın biçimini görsele taşı. "Tüm görsel" seçildiyse oran
+                   // zorlanmaz (kx-fig), aksi halde yuvanın sınıfı (yuvarlak profil vb.).
+                   img.className=pendingFigCls||slotOf(ph).cls;
+                   img.alt=slotAlt(ph);
+                   pendingFigCls=null;
                    ph.parentNode.replaceChild(img,ph);
                    const fp=findPage(curPage);
                    if(fp&&el('kx-body')){ fp.page.html=sanitize(serializeBody()); flushPage(); }
@@ -1634,9 +1740,9 @@ const CARD_TEMPLATES = [
   <div class="kx-mh-item">📅 <b>Tarih:</b> 11 Ağustos 2026 | 10:30</div>
   <div class="kx-mh-item">📍 <b>Lokasyon:</b> Online (Teams)</div>
   <div class="kx-mh-chips">
-    <span class="kx-chip">👤 Safi M.</span>
-    <span class="kx-chip">👤 Ahmet K.</span>
-    <span class="kx-chip">👤 Zeynep T.</span>
+    <span class="kx-chip">👤 Katılımcı 1</span>
+    <span class="kx-chip">👤 Katılımcı 2</span>
+    <span class="kx-chip">👤 Katılımcı 3</span>
   </div>
 </div>
 <h2>📝 Ürün Haftalık Senkronizasyonu</h2>
@@ -1651,7 +1757,7 @@ const CARD_TEMPLATES = [
     <tr><th>Görev / Aksiyon</th><th>Sorumlu</th><th>Son Tarih</th><th>Durum</th></tr>
   </thead>
   <tbody>
-    <tr><td>Önizleme modal bileşeni kodlanacak</td><td>Safi M.</td><td>12 Ağu</td><td><span class="kx-badge-req">Devam Ediyor</span></td></tr>
+    <tr><td>Önizleme modal bileşeni kodlanacak</td><td>Katılımcı 1</td><td>12 Ağu</td><td><span class="kx-badge-req">Devam Ediyor</span></td></tr>
     <tr><td>CSS tasarım tokenları güncellenecek</td><td>Ahmet K.</td><td>13 Ağu</td><td><span class="kx-badge-opt">Beklemede</span></td></tr>
     <tr><td>Kullanıcı testleri tamamlanacak</td><td>Zeynep T.</td><td>15 Ağu</td><td><span class="kx-badge-opt">Beklemede</span></td></tr>
   </tbody>
@@ -1665,12 +1771,12 @@ const CARD_TEMPLATES = [
     desc: 'Profil fotoğrafı, iletişim etiketleri, uzmanlık alanı ve sorumluluklar',
     badge: 'Profil',
     html: `<div class="kx-img-placeholder kx-img-avatar" title="Profil Fotoğrafı Yükle"><div class="kx-ip-icon">👤</div><div class="kx-ip-text">Profil Fotoğrafı Yükle</div></div>
-<h2 class="kx-center">Safi M. Ceylan</h2>
-<p class="kx-center kx-subtle"><b>Kıdemli Yazılım Mimarı & UI/UX Tasarımcısı</b></p>
+<h2 class="kx-center">İsim Soyisim</h2>
+<p class="kx-center kx-subtle"><b>Unvan / Rol</b></p>
 <div class="kx-profile-contacts">
-  <span class="kx-contact-pill">📧 safi@example.com</span>
-  <span class="kx-contact-pill">📱 +90 532 000 00 00</span>
-  <span class="kx-contact-pill">📍 İstanbul, TR</span>
+  <span class="kx-contact-pill">📧 ad.soyad@example.com</span>
+  <span class="kx-contact-pill">📱 +90 5XX XXX XX XX</span>
+  <span class="kx-contact-pill">📍 Şehir, Ülke</span>
 </div>
 <h3>🚀 Yetkinlikler & Uzmanlıklar</h3>
 <div class="kx-skills-grid">
@@ -2402,6 +2508,75 @@ ROOT.addEventListener('click',e=>{
     document.execCommand('copy'); s.removeAllRanges(); done();
   }catch(_){}
 });
+
+/* -------- Kırpma ekranı etkileşimleri (statik markup → bir kez bağlanır) -------- */
+{
+  const stage=el('cropStage'), zoom=el('cropZoom');
+  if(stage){
+    let dragging=false, lastX=0, lastY=0;
+    const down=e=>{ if(!crop)return; dragging=true; stage.classList.add('dragging');
+      lastX=e.clientX; lastY=e.clientY; stage.setPointerCapture&&stage.setPointerCapture(e.pointerId); };
+    const move=e=>{ if(!dragging||!crop)return;
+      // Fare hareketi önizleme ölçeğinde; yuva koordinatına çevir.
+      crop.ox+=(e.clientX-lastX)/crop.pv; crop.oy+=(e.clientY-lastY)/crop.pv;
+      lastX=e.clientX; lastY=e.clientY; cropDraw(); };
+    const up=()=>{ dragging=false; stage.classList.remove('dragging'); };
+    stage.addEventListener('pointerdown',down);
+    stage.addEventListener('pointermove',move);
+    stage.addEventListener('pointerup',up);
+    stage.addEventListener('pointercancel',up);
+  }
+  if(zoom){
+    zoom.addEventListener('input',()=>{
+      if(!crop)return;
+      const prev=crop.scale;
+      crop.scale=crop.min*(Number(zoom.value)/100);
+      // Yakınlaştırma yuvanın MERKEZİNİ sabit tutar; yoksa görsel köşeye kaçıyor.
+      const k=crop.scale/prev;
+      crop.ox=crop.slot.w/2-(crop.slot.w/2-crop.ox)*k;
+      crop.oy=crop.slot.h/2-(crop.slot.h/2-crop.oy)*k;
+      cropDraw();
+    });
+  }
+  const fill=el('cropModeFill'), fit=el('cropModeFit');
+  const setMode=isFit=>{
+    if(!crop)return;
+    crop.fit=isFit;
+    if(fill)fill.classList.toggle('active',!isFit);
+    if(fit)fit.classList.toggle('active',isFit);
+    // "Tüm görsel"de kırpma yok → sürükleme/yakınlaştırma anlamsız
+    const tools=el('cropTools'); if(tools)tools.style.display=isFit?'none':'';
+    const stage2=el('cropStage'); if(stage2)stage2.style.opacity=isFit?'.55':'';
+  };
+  if(fill)fill.onclick=()=>setMode(false);
+  if(fit)fit.onclick=()=>setMode(true);
+
+  const apply=el('cropApply');
+  if(apply)apply.onclick=()=>{
+    if(!crop){ hide('mdCrop'); return; }
+    const c=crop;
+    hide('mdCrop');
+    if(c.fit){
+      // Oran zorlanmadan, yalnızca küçültülerek eklenir.
+      pendingFigCls='kx-fig';
+      const cv=document.createElement('canvas');
+      let w=c.img.naturalWidth,h=c.img.naturalHeight;
+      if(w>1400){ h=Math.round(h*1400/w); w=1400; }
+      cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(c.img,0,0,w,h);
+      uploadImage(cv.toDataURL('image/jpeg',0.85));
+    } else {
+      pendingFigCls=c.slot.cls;
+      uploadImage(cropOutput());
+    }
+    crop=null;
+  };
+  // İptal/kapatma: bekleyen yer tutucu bırakılmasın, yoksa sonraki yükleme
+  // yanlış yere düşerdi.
+  ROOT.querySelectorAll('[data-close="mdCrop"]').forEach(b=>{
+    b.addEventListener('click',()=>{ crop=null; activePlaceholder=null; pendingFigCls=null; });
+  });
+}
 
 wireRailTabs();
 renderTemplates();   // canCreate henüz bilinmiyor → yetkisiz varsayılır, state gelince tazelenir

@@ -126,6 +126,33 @@
           </div>
         </div>
       </div>
+      <div class="backdrop" id="mdCrop">
+        <div class="modal">
+          <div class="m-head">
+            <h3>Position the image</h3>
+            <button class="m-close" data-close="mdCrop">✕</button>
+          </div>
+          <div class="m-body crop-body">
+            <p class="crop-hint" id="cropHint"></p>
+            <div class="crop-stage" id="cropStage">
+              <canvas id="cropCanvas"></canvas>
+              <div class="crop-mask" id="cropMask"></div>
+            </div>
+            <div class="crop-modes" id="cropModes">
+              <button class="crop-mode active" id="cropModeFill">Fill</button>
+              <button class="crop-mode" id="cropModeFit">Whole image</button>
+            </div>
+            <div class="crop-tools" id="cropTools">
+              <span class="crop-zoomlabel">Zoom</span>
+              <input type="range" id="cropZoom" min="100" max="300" value="100">
+            </div>
+          </div>
+          <div class="m-foot">
+            <button class="btn btn-ghost" data-close="mdCrop">Cancel</button>
+            <button class="btn btn-primary" id="cropApply">Add image</button>
+          </div>
+        </div>
+      </div>
       <div class="toast" id="toast"></div>
     </div>
   </div>

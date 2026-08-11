@@ -474,6 +474,14 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
    sunucuda yapılan iş hep ESKİ app.js üzerine yazılıyor, olduğu gibi alınırsa iç içe
    kartlar / bölümler / `openPages` geri gider. Doğru yol: sunucudaki sürümü en yakın
    release ile diff'leyip YALNIZCA yeni işi güncel tabana taşımak.
+11. **Şablon içeriğinde GERÇEK kişisel veri olmaz.** Şablonlar herkese açık uygulamayla
+   dağıtılıyor; içine yazılan bir ad/e-posta/telefon her kurulumda herkese görünür.
+   1.9.0'a kadar profil ve toplantı şablonlarında gerçek bir ad, e-posta, telefon ve şehir
+   duruyordu (sunucuda geliştirilirken doldurulmuş, taşınırken fark edilmemişti). Yer
+   tutucular nötr olmalı: "İsim Soyisim", `ad.soyad@example.com` (example.com ayrılmış
+   alan adıdır), `+90 5XX XXX XX XX`, "Şehir, Ülke", "Katılımcı 1". Yeni şablon eklerken
+   `grep -niE "safi|ceylan|@(gmail|hotmail|outlook)|\+90 5[0-9]{2} "` ile kontrol et.
+   ⚠️ `appinfo/info.xml`'deki yazar/depo bilgisi bunun DIŞINDA — orası uygulamanın künyesi.
 10. **Şablon HTML'i sanitizer'dan geçmek ZORUNDA.** Şablon gövdeleri sayfa içeriği olarak
    kaydediliyor, yani `HtmlSanitizer`'dan geçiyor: `style=` ALLOW listesinde YOK (satır içi
    renk/hizalama siliniyor) ve `BUTTON` DROP listesinde (içeriğiyle birlikte yok oluyor).
@@ -502,6 +510,8 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 | 1.7.0 | 4 Ağu | **Editör yetkisi**: yönetici, Yönetim → Bilgi Kartları'ndan hesap/grup atar; editör uygulama içinde admin kadar yetkili. Listeyi yalnızca gerçek NC admin değiştirir. |
 | 1.7.1 | 4 Ağu | Ayarlar kenar çubuğundaki simge beyaz olduğu için görünmüyordu → `img/app-dark.svg`. |
 | 1.7.2 | 11 Ağu | **Kart Şablonları** (sağ rayda sekme, 5 hazır iskelet). Sunucuda yaşayan sürüm repoya taşındı + yetki/CSS/l10n düzeltmeleri. Aynı gün sunucudaki karışık kurulum (1.0.6 + 1.7.x) temizlendi. |
+| 1.9.1 | 11 Ağu | Şablonlardaki **gerçek kişisel bilgiler** (ad, e-posta, telefon, şehir) nötr yer tutuculara çevrildi — yayınlanan uygulamada herkese görünüyordu. |
+| 1.9.0 | 11 Ağu | **Görsel konumlandırma ekranı** (sürükle/yakınlaştır, daire maskesi) + yuva biçiminin görsele taşınması (yuvarlak profil artık kare çıkmıyor) + yuvaya göre çerçeve. |
 | 1.8.0 | 11 Ağu | **8 şablon + kategori filtresi + canlı önizleme** (mini çekmece & tam ekran modal), çalışan Kopyala. Yine sunucuda geliştirilmişti, yine eski taban üzerineydi → doğru tabana taşındı. Şablon HTML'i `style=`/`<button>` kullanmıyor (sanitizer siliyordu). |
 
 ---
@@ -543,6 +553,15 @@ Editörü listeden çıkar → tekrar gir                 (düğmeler tekrar giz
 Grubu editör yap, üyesiyle gir                      (grup üzerinden de yetki)
 Editör hesabıyla koleksiyon SİL                     ("admin gibi tam yetki" kararı)
 Silinmiş bir hesabı listeye yazmayı dene            (kaydedince elenmeli)
+
+── 1.9.0 görsel konumlandırma ──
+Profil şablonu → yuvarlak yuvaya foto ekle          (YUVARLAK kalmalı, kare çıkarsa sınıf düşmüş)
+Kırpma ekranında sürükle                            (görünen bölge değişmeli)
+Yakınlaştır kaydırıcısı                             (merkez sabit kalmalı, köşeye kaçmamalı)
+Tasarım şablonu (mockup) → "Tüm görsel"             (oran korunur, kırpılmaz)
+Yuvarlak yuvada "Tüm görsel" düğmesi                (görünmemeli — daire zaten kırpar)
+Kırp → KAYDET → sayfayı yenile                      (biçim kalmalı; kaybolursa sanitizer sınıfı yedi)
+İptal et, sonra başka yer tutucuya tıkla            (görsel doğru yere gitmeli, öncekine değil)
 
 ── 1.8.0 şablon kategorileri & önizleme ──
 Filtre çipleri şablon listesini süzüyor mu          (9 çip / 8 şablon)

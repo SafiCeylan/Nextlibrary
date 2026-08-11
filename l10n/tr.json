@@ -267,7 +267,14 @@
         "Use this template": "Bu Şablonu Kullan",
         "Copied": "Kopyalandı",
         "Open a collection first": "Önce bir koleksiyon aç",
-        "Card created from template": "Şablondan kart oluşturuldu"
+        "Card created from template": "Şablondan kart oluşturuldu",
+        "Position the image": "Görseli konumlandır",
+        "Drag the photo to choose the part that stays inside the circle.": "Daire içinde kalacak bölümü seçmek için fotoğrafı sürükle.",
+        "Drag the photo to choose the visible part.": "Görünecek bölümü seçmek için fotoğrafı sürükle.",
+        "Fill": "Doldur",
+        "Whole image": "Tüm görsel",
+        "Zoom": "Yakınlaştır",
+        "Add image": "Görseli ekle"
     },
     "pluralForm": "nplurals=2; plural=(n != 1);"
 }

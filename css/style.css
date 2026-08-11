@@ -241,6 +241,23 @@
 #kesif-app .tmpl-mini-preview.open{display:block}
 #kesif-app .tmpl-mini-preview *{max-width:100%!important}
 
+/* -------- Görsel kırpma / konumlandırma ekranı -------- */
+#kesif-app .crop-body{padding:18px 20px;display:flex;flex-direction:column;gap:14px;align-items:center}
+#kesif-app .crop-hint{font-size:12.5px;color:var(--ink-faint);text-align:center}
+#kesif-app .crop-stage{position:relative;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;overflow:hidden;touch-action:none}
+#kesif-app .crop-stage canvas{display:block;cursor:grab}
+#kesif-app .crop-stage.dragging canvas{cursor:grabbing}
+/* Yuvarlak yuvada kırpma alanı daire olarak gösterilir; dışı karartılır ki kullanıcı
+   ne kadarının görüneceğini tahmin etmek zorunda kalmasın. */
+#kesif-app .crop-mask{position:absolute;inset:0;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.45) inset}
+#kesif-app .crop-mask.round{border-radius:50%}
+#kesif-app .crop-tools{display:flex;align-items:center;gap:10px;width:100%;max-width:420px}
+#kesif-app .crop-tools input[type=range]{flex:1;accent-color:var(--brand)}
+#kesif-app .crop-zoomlabel{font-size:12px;color:var(--ink-soft);white-space:nowrap}
+#kesif-app .crop-modes{display:flex;gap:4px;background:var(--surface-2);border-radius:8px;padding:3px}
+#kesif-app .crop-mode{border:none;background:transparent;color:var(--ink-soft);padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer}
+#kesif-app .crop-mode.active{background:var(--surface);color:var(--brand);box-shadow:var(--shadow)}
+
 /* Büyük şablon önizleme modalı */
 #kesif-app .modal.modal-lg{width:860px;max-width:95vw}
 #kesif-app .tmpl-preview-meta{padding:12px 20px;background:var(--surface-2);border-bottom:1px solid var(--line);font-size:13px;color:var(--ink-soft);display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -329,6 +346,22 @@
 #kesif-app .kx-ip-text{font-size:13px;font-weight:600;color:var(--ink-soft);text-align:center}
 #kesif-app .kx-img-avatar{min-height:100px;width:120px;height:120px;border-radius:60px;margin:16px auto}
 #kesif-app .kx-img-sm{min-height:90px}
+
+/* -------- Yüklenen görselin yuvaya göre biçimi --------
+   Yer tutucu bir <img> ile değiştirilirken ESKİDEN sınıfları atılıyordu: yuvarlak profil
+   yuvası kocaman bir kareye dönüşüyordu. Artık yuvanın biçimi görsele taşınıyor.
+   Kırpma canvas'ta piksele işlendiği için burada yalnızca çerçeve/oran işi kalıyor —
+   konumu `style` ile saklamak mümkün değil, sanitizer siliyor. */
+#kesif-app .doc-content img.kx-fig-avatar,#kesif-app .content img.kx-fig-avatar{
+  width:120px;height:120px;border-radius:50%;object-fit:cover;display:block;margin:16px auto;
+  border:3px solid var(--brand);box-shadow:var(--shadow)}
+#kesif-app .doc-content img.kx-fig-sm,#kesif-app .content img.kx-fig-sm{
+  width:100%;aspect-ratio:8/5;object-fit:cover;border-radius:8px;
+  border:1px solid var(--line);box-shadow:var(--shadow)}
+#kesif-app .doc-content img.kx-fig,#kesif-app .content img.kx-fig{
+  width:100%;border-radius:10px}
+/* aspect-ratio desteklemeyen eski tarayıcı: en azından taşmasın */
+@supports not (aspect-ratio:1/1){#kesif-app .doc-content img.kx-fig-sm{height:auto}}
 /* İmleç ve vurgu YALNIZCA düzenleme modunda. Kanca contenteditable'ın kendisi:
    renderViewer `contenteditable="${editing}"` yazıyor, ayrı bir 'editing' sınıfı YOK →
    durumu ikinci bir yerde tutmadan doğrudan gerçeğe bağlanıyor. Okuyan kullanıcıya

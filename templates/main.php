@@ -124,5 +124,36 @@
     </div>
   </div>
 
+  <!-- Görsel kırpma: seçilen fotoğrafın hangi bölümünün görüneceği burada belirlenir.
+       Sonuç canvas'ta piksele işlenip öyle yükleniyor — konumu markup'ta saklamak
+       mümkün değil, sanitizer `style` özniteliğini siliyor. -->
+  <div class="backdrop" id="mdCrop">
+    <div class="modal">
+      <div class="m-head">
+        <h3><?php p($l->t('Position the image')); ?></h3>
+        <button class="m-close" data-close="mdCrop">✕</button>
+      </div>
+      <div class="m-body crop-body">
+        <p class="crop-hint" id="cropHint"></p>
+        <div class="crop-stage" id="cropStage">
+          <canvas id="cropCanvas"></canvas>
+          <div class="crop-mask" id="cropMask"></div>
+        </div>
+        <div class="crop-modes" id="cropModes">
+          <button class="crop-mode active" id="cropModeFill"><?php p($l->t('Fill')); ?></button>
+          <button class="crop-mode" id="cropModeFit"><?php p($l->t('Whole image')); ?></button>
+        </div>
+        <div class="crop-tools" id="cropTools">
+          <span class="crop-zoomlabel"><?php p($l->t('Zoom')); ?></span>
+          <input type="range" id="cropZoom" min="100" max="300" value="100">
+        </div>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close="mdCrop"><?php p($l->t('Cancel')); ?></button>
+        <button class="btn btn-primary" id="cropApply"><?php p($l->t('Add image')); ?></button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 </div>
