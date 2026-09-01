@@ -1558,28 +1558,76 @@ document.addEventListener('click',e=>{ const p=el('kxPop'); if(p&&!e.target.clos
 
 /* -------- Hazır Kart Şablonları (8 Farklı Tarz & Canlı Önizleme) -------- */
 const CARD_CATEGORIES = [
-  { id: 'all', label: 'Tümü' },
-  { id: 'dev', label: '💻 Kod / API' },
-  { id: 'executive', label: '📊 Yönetici' },
-  { id: 'sop', label: '🛠️ Süreç' },
-  { id: 'design', label: '🎨 Tasarım' },
-  { id: 'meeting', label: '📝 Toplantı' },
-  { id: 'profile', label: '👤 Profil' },
-  { id: 'product', label: '🚀 Ürün' },
-  { id: 'research', label: '📚 Akademik' }
+  { id: 'all', label: t('nextlibrary','All') },
+  { id: 'dev', label: '💻 ' + t('nextlibrary','Code / API') },
+  { id: 'executive', label: '📊 ' + t('nextlibrary','Executive') },
+  { id: 'sop', label: '🛠️ ' + t('nextlibrary','Process') },
+  { id: 'design', label: '🎨 ' + t('nextlibrary','Design') },
+  { id: 'meeting', label: '📝 ' + t('nextlibrary','Meeting') },
+  { id: 'profile', label: '👤 ' + t('nextlibrary','Profile') },
+  { id: 'product', label: '🚀 ' + t('nextlibrary','Product') },
+  { id: 'research', label: '📚 ' + t('nextlibrary','Academic') }
 ];
 
 let activeTmplCategory = 'all';
+
+/* Şablon gövdeleri (zengin HTML) için dil seçimi. Kısa panel metinleri normal t()
+   ile çevrilir; gövdeler burada dile göre seçilir çünkü t() string-eşlemesi zengin
+   HTML'de kırılgan: kod şablonunun JSON gövdesi {..} içerir ve t()'nin {yer tutucu}
+   ikamesine takılır, ayrıca tek bir boşluk farkı çeviriyi sessizce düşürür. İngilizce
+   kaynak koddadır, Türkçe ikinci argümandır — CSS/sanitizer'ın bağlı olduğu SINIF
+   ADLARI iki dilde de birebir aynıdır, sadece görünen metin değişir.
+   Yeni dil eklenirse gövdeler İngilizceye düşer (panel yine tam çevrilir). */
+const TMPL_LANG_TR = (typeof OC !== 'undefined' && OC.getLanguage) ? String(OC.getLanguage()).toLowerCase().startsWith('tr') : false;
+function tmplBody(en, tr){ return TMPL_LANG_TR ? tr : en; }
 
 const CARD_TEMPLATES = [
   {
     id: 'code_doc',
     category: 'dev',
     emoji: '💻',
-    title: 'Yazılım & API Dokümanı',
-    desc: 'REST API uç noktaları, parametre tablosu ve cURL/JSON kod örnekleri',
+    title: t('nextlibrary','Software & API Documentation'),
+    desc: t('nextlibrary','REST API endpoints, parameter table and cURL/JSON code examples'),
     badge: 'Dev / API',
-    html: `<div class="kx-code-hero">
+    html: tmplBody(`<div class="kx-code-hero">
+    <div class="kx-api-endpoint">
+      <span class="kx-method-tag kx-post">POST</span>
+      <code class="kx-api-url">/api/v1/auth/login</code>
+      <span class="kx-status-pill">200 OK</span>
+    </div>
+  </div>
+  <h2>💻 API Documentation</h2>
+  <p>This endpoint performs user authentication and issues a JWT token.</p>
+  <div class="kx-callout kx-callout-info">
+    <b>🔑 Security note:</b> Every request must include the <code>Authorization: Bearer &lt;token&gt;</code> header.
+  </div>
+  <h3>📋 Request parameters</h3>
+  <table class="kx-table">
+    <thead>
+      <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>username</code></td><td>String</td><td><span class="kx-badge-req">Required</span></td><td>User email address</td></tr>
+      <tr><td><code>password</code></td><td>String</td><td><span class="kx-badge-req">Required</span></td><td>Password, minimum 8 characters</td></tr>
+      <tr><td><code>remember_me</code></td><td>Boolean</td><td><span class="kx-badge-opt">Optional</span></td><td>30-day session lifetime</td></tr>
+    </tbody>
+  </table>
+  <h3>💻 Example request (cURL)</h3>
+  <div class="kx-code-block">
+    <div class="kx-cb-head"><span>Bash</span><span class="kx-cb-copy">Copy</span></div>
+    <pre><code>curl -X POST https://api.example.com/v1/auth/login \\
+  -H "Content-Type: application/json" \\
+  -d '{"username": "user@domain.com", "password": "SecretPassword123"}'</code></pre>
+  </div>
+  <h3>📤 Example response payload (JSON)</h3>
+  <div class="kx-code-block">
+    <div class="kx-cb-head"><span>JSON</span></div>
+    <pre><code>{
+  "status": "success",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expires_in": 86400
+}</code></pre>
+  </div>`, `<div class="kx-code-hero">
   <div class="kx-api-endpoint">
     <span class="kx-method-tag kx-post">POST</span>
     <code class="kx-api-url">/api/v1/auth/login</code>
@@ -1617,16 +1665,48 @@ const CARD_TEMPLATES = [
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "expires_in": 86400
 }</code></pre>
-</div>`
+</div>`)
   },
   {
     id: 'exec_kpi',
     category: 'executive',
     emoji: '📊',
-    title: 'Yönetici & Performans Raporu',
-    desc: 'KPI metrik kartları, gelir grafiği ve stratejik karar listesi',
-    badge: 'Yönetici',
-    html: `<h2>📊 Çeyrek Dönem Yönetici Raporu</h2>
+    title: t('nextlibrary','Executive & Performance Report'),
+    desc: t('nextlibrary','KPI metric cards, revenue chart and strategic decision list'),
+    badge: t('nextlibrary','Executive'),
+    html: tmplBody(`<h2>📊 Quarterly Executive Report</h2>
+  <p>2026 Q3 growth metrics, operational goals and key performance indicators.</p>
+  <div class="kx-kpi-grid">
+    <div class="kx-kpi-card kx-kpi-cyan">
+      <div class="kx-kpi-label">Total Revenue (ARR)</div>
+      <div class="kx-kpi-val">₺4.82M</div>
+      <div class="kx-kpi-trend kx-up">▲ 18.4% (vs last month)</div>
+    </div>
+    <div class="kx-kpi-card kx-kpi-purple">
+      <div class="kx-kpi-label">Active Subscribers</div>
+      <div class="kx-kpi-val">12,450</div>
+      <div class="kx-kpi-trend kx-up">▲ +1,280 new</div>
+    </div>
+    <div class="kx-kpi-card kx-kpi-green">
+      <div class="kx-kpi-label">Customer Satisfaction</div>
+      <div class="kx-kpi-val">96.8%</div>
+      <div class="kx-kpi-trend kx-up">▲ CSAT score</div>
+    </div>
+    <div class="kx-kpi-card kx-kpi-amber">
+      <div class="kx-kpi-label">Churn Rate</div>
+      <div class="kx-kpi-val">1.2%</div>
+      <div class="kx-kpi-trend kx-down">▼ 0.4% drop</div>
+    </div>
+  </div>
+  <div class="kx-callout kx-callout-success">
+    <b>🚀 Strategic win:</b> 112% of Q3 targets were completed 2 weeks ahead of plan.
+  </div>
+  <h3>📌 Decisions & actions</h3>
+  <ul class="kx-check-list">
+    <li>✅ Server infrastructure capacity for the enterprise segment was doubled.</li>
+    <li>✅ Marketing budget was shifted 25% toward digital channels.</li>
+    <li>⏳ Mobile app revamp project scheduled for the start of Q4.</li>
+  </ul>`, `<h2>📊 Çeyrek Dönem Yönetici Raporu</h2>
 <p>2026 Q3 büyüme metrikleri, operasyonel hedefler ve kritik performans göstergeleri.</p>
 <div class="kx-kpi-grid">
   <div class="kx-kpi-card kx-kpi-cyan">
@@ -1658,16 +1738,46 @@ const CARD_TEMPLATES = [
   <li>✅ Enterprise segment için sunucu altyapısı kapasitesi 2 katına çıkarıldı.</li>
   <li>✅ Pazarlama bütçesi dijital kanallara %25 oranında kaydırıldı.</li>
   <li>⏳ Mobil uygulama yenileme projesi Q4 başına takvimlendi.</li>
-</ul>`
+</ul>`)
   },
   {
     id: 'sop_workflow',
     category: 'sop',
     emoji: '🛠️',
-    title: 'SOP & Standart Süreç Rehberi',
-    desc: 'Numaralı adım adım iş akışı, güvenlik kontrolü ve prosedür kartı',
-    badge: 'Süreç / SOP',
-    html: `<div class="kx-sop-header">
+    title: t('nextlibrary','SOP & Standard Process Guide'),
+    desc: t('nextlibrary','Numbered step-by-step workflow, safety check and procedure card'),
+    badge: t('nextlibrary','Process / SOP'),
+    html: tmplBody(`<div class="kx-sop-header">
+    <span class="kx-sop-badge">SOP-2026-08</span>
+    <span class="kx-sop-title">Server Deployment & Release Procedure</span>
+    <span class="kx-sop-rev">Rev: 3.2</span>
+  </div>
+  <h2>🛠️ Process steps</h2>
+  <div class="kx-sop-steps">
+    <div class="kx-sop-step">
+      <div class="kx-sop-num">1</div>
+      <div class="kx-sop-content">
+        <h4>Code review & merge</h4>
+        <p>Before merging into main, confirm that all unit and integration tests pass.</p>
+        <div class="kx-callout kx-callout-warning"><b>⚠️ Prerequisite:</b> At least 2 senior developer approvals (PR Approve) are required.</div>
+      </div>
+    </div>
+    <div class="kx-sop-step">
+      <div class="kx-sop-num">2</div>
+      <div class="kx-sop-content">
+        <h4>Staging environment verification</h4>
+        <p>Deploy the build artifacts to the staging server and run the smoke tests.</p>
+      </div>
+    </div>
+    <div class="kx-sop-step">
+      <div class="kx-sop-num">3</div>
+      <div class="kx-sop-content">
+        <h4>Production deploy</h4>
+        <p>Start the production deployment trigger. Traffic will be shifted gradually (10% -> 50% -> 100%).</p>
+        <div class="kx-callout kx-callout-info"><b>💡 Rollback plan:</b> On failure, run <code>./rollback.sh --version previous</code>.</div>
+      </div>
+    </div>
+  </div>`, `<div class="kx-sop-header">
   <span class="kx-sop-badge">SOP-2026-08</span>
   <span class="kx-sop-title">Sunucu Dağıtım & Yayınlama Prosedürü</span>
   <span class="kx-sop-rev">Rev: 3.2</span>
@@ -1697,16 +1807,37 @@ const CARD_TEMPLATES = [
       <div class="kx-callout kx-callout-info"><b>💡 Geri Dönüş Planı:</b> Hata durumunda <code>./rollback.sh --version previous</code> komutunu çalıştırın.</div>
     </div>
   </div>
-</div>`
+</div>`)
   },
   {
     id: 'design_moodboard',
     category: 'design',
     emoji: '🎨',
-    title: 'Tasarım & Kreatif Moodboard',
-    desc: 'Renk paleti renk kartları, tipografi özellikleri ve görsel kılavuz',
-    badge: 'Tasarım',
-    html: `<div class="kx-img-placeholder" title="Kapak Görseli Yükle"><div class="kx-ip-icon">🎨</div><div class="kx-ip-text">Moodboard / Kapak Görseli Yükle (Tıkla)</div></div>
+    title: t('nextlibrary','Design & Creative Moodboard'),
+    desc: t('nextlibrary','Color palette swatches, typography specs and visual guide'),
+    badge: t('nextlibrary','Design'),
+    html: tmplBody(`<div class="kx-img-placeholder" title="Upload cover image"><div class="kx-ip-icon">🎨</div><div class="kx-ip-text">Upload moodboard / cover image (click)</div></div>
+  <h2>🎨 Brand & UI design system guide</h2>
+  <p>Project visual language, color palette and typographic hierarchy standards.</p>
+  <h3>🎨 Color palette</h3>
+  <div class="kx-palette-grid">
+    <div class="kx-swatch kx-sw-brand"><span>Primary</span><code>#0082C9</code></div>
+    <div class="kx-swatch kx-sw-purple"><span>Purple Accent</span><code>#7C6FE0</code></div>
+    <div class="kx-swatch kx-sw-green"><span>Success Cyan</span><code>#00FF88</code></div>
+    <div class="kx-swatch kx-sw-dark"><span>Ink Slate</span><code>#1B2733</code></div>
+    <div class="kx-swatch kx-sw-light"><span>Surface 2</span><code>#F0F3F6</code></div>
+  </div>
+  <h3>✍️ Typography & fonts</h3>
+  <div class="kx-typo-box">
+    <div class="kx-typo-item"><b>Headings:</b> Rajdhani / IBM Plex Sans (Bold 700)</div>
+    <div class="kx-typo-item"><b>Body text:</b> Segoe UI / Inter (Regular 400)</div>
+    <div class="kx-typo-item"><b>Code & metrics:</b> JetBrains Mono / Space Mono</div>
+  </div>
+  <h3>🖼️ Visual assets</h3>
+  <div class="kx-media-grid">
+    <div class="kx-img-placeholder kx-img-sm"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">UI Mockup 1</div></div>
+    <div class="kx-img-placeholder kx-img-sm"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">UI Mockup 2</div></div>
+  </div>`, `<div class="kx-img-placeholder" title="Kapak Görseli Yükle"><div class="kx-ip-icon">🎨</div><div class="kx-ip-text">Moodboard / Kapak Görseli Yükle (Tıkla)</div></div>
 <h2>🎨 Marka & UI Tasarım Sistem Rehberi</h2>
 <p>Proje görsel dili, renk paleti ve tipografik hiyerarşi standartları.</p>
 <h3>🎨 Renk Paleti (Palette)</h3>
@@ -1727,16 +1858,41 @@ const CARD_TEMPLATES = [
 <div class="kx-media-grid">
   <div class="kx-img-placeholder kx-img-sm"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">UI Mockup 1</div></div>
   <div class="kx-img-placeholder kx-img-sm"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">UI Mockup 2</div></div>
-</div>`
+</div>`)
   },
   {
     id: 'meeting_notes',
     category: 'meeting',
     emoji: '📝',
-    title: 'Toplantı Notu & Aksiyon Takibi',
-    desc: 'Toplantı künyesi, alınan kararlar ve görev dağılım tablosu',
-    badge: 'Toplantı',
-    html: `<div class="kx-meeting-header">
+    title: t('nextlibrary','Meeting Notes & Action Tracking'),
+    desc: t('nextlibrary','Meeting header, decisions taken and task assignment table'),
+    badge: t('nextlibrary','Meeting'),
+    html: tmplBody(`<div class="kx-meeting-header">
+    <div class="kx-mh-item">📅 <b>Date:</b> 11 August 2026 | 10:30</div>
+    <div class="kx-mh-item">📍 <b>Location:</b> Online (Teams)</div>
+    <div class="kx-mh-chips">
+      <span class="kx-chip">👤 Participant 1</span>
+      <span class="kx-chip">👤 Participant 2</span>
+      <span class="kx-chip">👤 Participant 3</span>
+    </div>
+  </div>
+  <h2>📝 Product weekly sync</h2>
+  <div class="kx-callout kx-callout-info">
+    <b>🎯 Meeting goal:</b> Prioritize the Q4 roadmap and review the new UI templates.
+  </div>
+  <h3>💡 Key decisions</h3>
+  <blockquote class="kx-quote">"The new card template designs will be integrated with the live preview panel and submitted for user approval."</blockquote>
+  <h3>📋 Action tracking list</h3>
+  <table class="kx-table">
+    <thead>
+      <tr><th>Task / Action</th><th>Owner</th><th>Due date</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Build the preview modal component</td><td>Participant 1</td><td>12 Aug</td><td><span class="kx-badge-req">In progress</span></td></tr>
+      <tr><td>Update CSS design tokens</td><td>Participant 2</td><td>13 Aug</td><td><span class="kx-badge-opt">Pending</span></td></tr>
+      <tr><td>Complete user testing</td><td>Participant 3</td><td>15 Aug</td><td><span class="kx-badge-opt">Pending</span></td></tr>
+    </tbody>
+  </table>`, `<div class="kx-meeting-header">
   <div class="kx-mh-item">📅 <b>Tarih:</b> 11 Ağustos 2026 | 10:30</div>
   <div class="kx-mh-item">📍 <b>Lokasyon:</b> Online (Teams)</div>
   <div class="kx-mh-chips">
@@ -1761,16 +1917,36 @@ const CARD_TEMPLATES = [
     <tr><td>CSS tasarım tokenları güncellenecek</td><td>Ahmet K.</td><td>13 Ağu</td><td><span class="kx-badge-opt">Beklemede</span></td></tr>
     <tr><td>Kullanıcı testleri tamamlanacak</td><td>Zeynep T.</td><td>15 Ağu</td><td><span class="kx-badge-opt">Beklemede</span></td></tr>
   </tbody>
-</table>`
+</table>`)
   },
   {
     id: 'user_profile',
     category: 'profile',
     emoji: '👤',
-    title: 'Kişi & Profil Kartı',
-    desc: 'Profil fotoğrafı, iletişim etiketleri, uzmanlık alanı ve sorumluluklar',
-    badge: 'Profil',
-    html: `<div class="kx-img-placeholder kx-img-avatar" title="Profil Fotoğrafı Yükle"><div class="kx-ip-icon">👤</div><div class="kx-ip-text">Profil Fotoğrafı Yükle</div></div>
+    title: t('nextlibrary','Person & Profile Card'),
+    desc: t('nextlibrary','Profile photo, contact tags, area of expertise and responsibilities'),
+    badge: t('nextlibrary','Profile'),
+    html: tmplBody(`<div class="kx-img-placeholder kx-img-avatar" title="Upload profile photo"><div class="kx-ip-icon">👤</div><div class="kx-ip-text">Upload profile photo</div></div>
+  <h2 class="kx-center">Full Name</h2>
+  <p class="kx-center kx-subtle"><b>Title / Role</b></p>
+  <div class="kx-profile-contacts">
+    <span class="kx-contact-pill">📧 name.surname@example.com</span>
+    <span class="kx-contact-pill">📱 +90 5XX XXX XX XX</span>
+    <span class="kx-contact-pill">📍 City, Country</span>
+  </div>
+  <h3>🚀 Skills & expertise</h3>
+  <div class="kx-skills-grid">
+    <span class="kx-skill-tag">Nextcloud Plugin Dev</span>
+    <span class="kx-skill-tag">Vue.js / React</span>
+    <span class="kx-skill-tag">PHP / Symfony</span>
+    <span class="kx-skill-tag">UI/UX Design System</span>
+    <span class="kx-skill-tag">REST API Architecture</span>
+  </div>
+  <h3>📌 Current projects & responsibilities</h3>
+  <ul>
+    <li><b>NextLibrary:</b> Architect of the knowledge cards and template system</li>
+    <li><b>CloudImport:</b> Cloud storage integration provider</li>
+  </ul>`, `<div class="kx-img-placeholder kx-img-avatar" title="Profil Fotoğrafı Yükle"><div class="kx-ip-icon">👤</div><div class="kx-ip-text">Profil Fotoğrafı Yükle</div></div>
 <h2 class="kx-center">İsim Soyisim</h2>
 <p class="kx-center kx-subtle"><b>Unvan / Rol</b></p>
 <div class="kx-profile-contacts">
@@ -1790,16 +1966,34 @@ const CARD_TEMPLATES = [
 <ul>
   <li><b>NextLibrary:</b> Bilgi kartları ve şablon sistemi mimarı</li>
   <li><b>CloudImport:</b> Bulut depolama entegrasyon sağlayıcısı</li>
-</ul>`
+</ul>`)
   },
   {
     id: 'product_spec',
     category: 'product',
     emoji: '🚀',
-    title: 'Ürün Spesifikasyonu & Özellik Kartı',
-    desc: 'Kullanıcı hikayesi (User story), kabul kriterleri ve tel kafes görsel alanı',
-    badge: 'Ürün',
-    html: `<div class="kx-img-placeholder" title="Wireframe / Tel Kafes Görseli Yükle"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">Wireframe / Tel Kafes Görseli Yükle</div></div>
+    title: t('nextlibrary','Product Specification & Feature Card'),
+    desc: t('nextlibrary','User story, acceptance criteria and wireframe image area'),
+    badge: t('nextlibrary','Product'),
+    html: tmplBody(`<div class="kx-img-placeholder" title="Upload wireframe image"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">Upload wireframe image</div></div>
+  <h2>🚀 Feature: Live template preview module</h2>
+  <div class="kx-callout kx-callout-success">
+    <b>👤 User story:</b> As a user, before creating a new card I want to preview the full template layout live on the right, so I can instantly pick the layout that best fits my need.
+  </div>
+  <h3>✅ Acceptance criteria</h3>
+  <ul class="kx-check-list">
+    <li>✅ When the user clicks a template in the right panel or the preview button, a live mini preview opens.</li>
+    <li>✅ Templates can be filtered by category (All, Dev, Executive, SOP, Design, etc.).</li>
+    <li>✅ A new card is created with one click from the "Use this template" button in the preview area.</li>
+  </ul>
+  <h3>🎯 Target metrics & impact</h3>
+  <table class="kx-table">
+    <thead><tr><th>Metric</th><th>Current</th><th>Target</th></tr></thead>
+    <tbody>
+      <tr><td>Template usage rate</td><td>22%</td><td>65%+</td></tr>
+      <tr><td>Card creation time</td><td>45 s</td><td>10 s</td></tr>
+    </tbody>
+  </table>`, `<div class="kx-img-placeholder" title="Wireframe / Tel Kafes Görseli Yükle"><div class="kx-ip-icon">🖼️</div><div class="kx-ip-text">Wireframe / Tel Kafes Görseli Yükle</div></div>
 <h2>🚀 Özellik: Canlı Şablon Önizleme Modülü</h2>
 <div class="kx-callout kx-callout-success">
   <b>👤 User Story:</b> Bir kullanıcı olarak, yeni kart oluşturmadan önce şablonun tam görünümünü sağ tarafta canlı önizlemek istiyorum, böylece ihtiyacıma en uygun düzeni anında seçebilirim.
@@ -1817,16 +2011,33 @@ const CARD_TEMPLATES = [
     <tr><td>Şablon Kullanım Oranı</td><td>%22</td><td>%65+</td></tr>
     <tr><td>Kart Oluşturma Süresi</td><td>45 sn</td><td>10 sn</td></tr>
   </tbody>
-</table>`
+</table>`)
   },
   {
     id: 'academic_ref',
     category: 'research',
     emoji: '📚',
-    title: 'Sözlük & Araştırma Makalesi',
-    desc: 'Kavram açıklamaları, alıntılar ve literatür referans bağlantıları',
-    badge: 'Akademik',
-    html: `<h2>📚 Kavram: Bilgi Grafiği (Knowledge Graph)</h2>
+    title: t('nextlibrary','Glossary & Research Article'),
+    desc: t('nextlibrary','Concept explanations, quotes and literature reference links'),
+    badge: t('nextlibrary','Academic'),
+    html: tmplBody(`<h2>📚 Concept: Knowledge Graph</h2>
+  <div class="kx-callout kx-callout-info">
+    <b>💡 Definition:</b> A database model that represents objects, concepts and the relationships between them in a semantic network structure.
+  </div>
+  <blockquote class="kx-quote">
+    "The relational links between knowledge cards let data be not just stored, but discovered and connected."
+  </blockquote>
+  <h3>🔍 Main components</h3>
+  <ul>
+    <li><b>Entities:</b> Cards, people, documents.</li>
+    <li><b>Relations:</b> "Contains", "References", "Edited by".</li>
+    <li><b>Attributes:</b> Creation date, template type, tags.</li>
+  </ul>
+  <h3>🔗 Cited documents</h3>
+  <div class="kx-ref-links">
+    <a href="#" class="kx-ref-card">📄 W3C Resource Description Framework (RDF)</a>
+    <a href="#" class="kx-ref-card">📄 Neo4j Graph Database Fundamentals</a>
+  </div>`, `<h2>📚 Kavram: Bilgi Grafiği (Knowledge Graph)</h2>
 <div class="kx-callout kx-callout-info">
   <b>💡 Tanım:</b> Nesneler, kavramlar ve bunların arasındaki ilişkileri anlamsal (semantic) ağ yapısında temsil eden veritabanı modelidir.
 </div>
@@ -1843,7 +2054,7 @@ const CARD_TEMPLATES = [
 <div class="kx-ref-links">
   <a href="#" class="kx-ref-card">📄 W3C Resource Description Framework (RDF)</a>
   <a href="#" class="kx-ref-card">📄 Neo4j Graph Database Fundamentals</a>
-</div>`
+</div>`)
   }
 ];
 
