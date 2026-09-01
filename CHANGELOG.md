@@ -4,6 +4,31 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.2] - 2026-09-01
+
+### Fixed
+- **Opening the app ran one database query per collection, plus one per member.** Building
+  the collection list asked for each collection's pages separately, then each collection's
+  members separately, and then resolved every member's and owner's display name one at a
+  time — so an account with many collections paid for it on every single sync, twenty
+  seconds apart. Pages and members now arrive in one query each, and each distinct account
+  or group name is resolved once no matter how many collections it appears in. The trash
+  bin listing takes the same path. Nothing about the response changed: the same fields,
+  in the same order.
+
+### Changed
+- **The card template panel is now translated.** The templates added in 1.7.2 and 1.8.0
+  were written directly in Turkish, so an English-language Nextcloud showed a Turkish
+  panel: the category filters, and every template's name, description and badge. Those
+  now follow the language Nextcloud is set to, with 26 new Turkish translations.
+- The template *contents* — the ready-made card bodies themselves — are chosen by language
+  rather than translated string by string, because rich HTML makes that fragile: the API
+  template's body contains a JSON example, and the braces in it collide with the
+  placeholder substitution the translation function performs. English and Turkish bodies
+  are kept side by side instead. A consequence worth knowing: a language added later gets
+  English card bodies, though the panel around them still translates. The class names are
+  identical in both languages, so styling is unaffected.
+
 ## [1.9.1] - 2026-08-11
 
 ### Fixed
