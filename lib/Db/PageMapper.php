@@ -41,6 +41,26 @@ class PageMapper extends QBMapper {
         return $this->findEntities($qb);
     }
 
+    /**
+     * Birden çok koleksiyonun aktif sayfaları — TEK sorguda (N+1 yerine).
+     * `state()` sıcak yolu için: her koleksiyona ayrı `findByCollection` açmak yerine.
+     * Sıralama `collection_id, sort, id` → çağıran koleksiyona göre gruplayınca her
+     * koleksiyonun sayfa sırası `findByCollection` ile birebir aynı kalır.
+     * @param int[] $collectionIds
+     * @return Page[]
+     */
+    public function findByCollections(array $collectionIds): array {
+        if (empty($collectionIds)) {
+            return [];
+        }
+        $qb = $this->db->getQueryBuilder();
+        $qb->select('*')->from($this->getTableName())
+            ->where($qb->expr()->in('collection_id', $qb->createNamedParameter($collectionIds, IQueryBuilder::PARAM_INT_ARRAY)))
+            ->andWhere($qb->expr()->eq('deleted_at', $qb->createNamedParameter(0, IQueryBuilder::PARAM_INT)))
+            ->orderBy('collection_id', 'ASC')->addOrderBy('sort', 'ASC')->addOrderBy('id', 'ASC');
+        return $this->findEntities($qb);
+    }
+
     /** @return Page[] */
     public function findDeletedPages(int $collectionId): array {
         $qb = $this->db->getQueryBuilder();

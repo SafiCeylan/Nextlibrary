@@ -25,6 +25,22 @@ class MemberMapper extends QBMapper {
     }
 
     /**
+     * Birden çok koleksiyonun üyeleri — TEK sorguda (N+1 yerine).
+     * `state()` sıcak yolu koleksiyon başına ayrı `findByCollection` açıyordu.
+     * @param int[] $collectionIds
+     * @return Member[]
+     */
+    public function findByCollections(array $collectionIds): array {
+        if (empty($collectionIds)) {
+            return [];
+        }
+        $qb = $this->db->getQueryBuilder();
+        $qb->select('*')->from($this->getTableName())
+            ->where($qb->expr()->in('collection_id', $qb->createNamedParameter($collectionIds, IQueryBuilder::PARAM_INT_ARRAY)));
+        return $this->findEntities($qb);
+    }
+
+    /**
      * Verilen principal kümesinin (kullanıcı uid + grup id'leri) üye olduğu koleksiyon id'leri.
      * @param string[] $principals
      * @return int[]

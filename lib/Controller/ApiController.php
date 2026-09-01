@@ -175,6 +175,70 @@ class ApiController extends Controller {
         return $data;
     }
 
+    /**
+     * `collectionToArray`'in toplu (N+1'siz) hâli — `state()` sıcak yolu için.
+     * Koleksiyon başına ayrı sayfa/üye sorgusu ve üye başına ayrı ad çözümü yerine:
+     *  - sayfalar TEK sorguda (`findByCollections`), PHP'de koleksiyona göre gruplanır,
+     *  - üyeler TEK sorguda, aynı şekilde gruplanır,
+     *  - principal adları (üyeler + sahipler) benzersizleştirilip her biri BİR kez çözülür.
+     * Çıktı, koleksiyon başına `collectionToArray` ile aynı şekle sahiptir; sıra korunur.
+     * @param Collection[] $collections
+     * @return array[]
+     */
+    private function collectionsToArray(array $collections): array {
+        if (empty($collections)) {
+            return [];
+        }
+        $ids = array_map(function(Collection $c) { return (int)$c->getId(); }, $collections);
+
+        // Sayfalar: tek sorgu, koleksiyon id'sine göre grupla (sorgu sort/id ile sıralı geldi).
+        $pagesByColl = [];
+        foreach ($this->pages->findByCollections($ids) as $p) {
+            $pagesByColl[(int)$p->getCollectionId()][] = $p->jsonSerialize();
+        }
+
+        // Üyeler: tek sorgu, grupla; bu arada çözülecek benzersiz principal kümesini biriktir.
+        $membersByColl = [];
+        $labelReq = []; // "type\0principal" => [principal, type] — aynı principal iki kez çözülmesin
+        foreach ($this->members->findByCollections($ids) as $m) {
+            $membersByColl[(int)$m->getCollectionId()][] = $m;
+            $labelReq[$m->getType() . "\0" . $m->getPrincipal()] = [$m->getPrincipal(), $m->getType()];
+        }
+        foreach ($collections as $c) {
+            $labelReq["user\0" . $c->getOwnerUid()] = [$c->getOwnerUid(), 'user'];
+        }
+
+        // Ad çözümü: her benzersiz principal için tek IUserManager/IGroupManager çağrısı.
+        $labels = [];
+        foreach ($labelReq as $key => $pt) {
+            $labels[$key] = $this->principalLabel($pt[0], $pt[1]);
+        }
+
+        // Yazma yetkisi kullanıcıya bağlı, koleksiyona değil (canEdit $c'yi yok sayar) → bir kez.
+        $canEdit = $this->perms->canWrite($this->uid());
+
+        $out = [];
+        foreach ($collections as $c) {
+            $cid = (int)$c->getId();
+            $members = [];
+            foreach ($membersByColl[$cid] ?? [] as $m) {
+                $members[] = [
+                    'principal' => $m->getPrincipal(),
+                    'type' => $m->getType(),
+                    'role' => $m->getRole() ?: 'editor',
+                    'label' => $labels[$m->getType() . "\0" . $m->getPrincipal()],
+                ];
+            }
+            $data = $c->jsonSerialize();
+            $data['pages'] = $pagesByColl[$cid] ?? [];
+            $data['members'] = $members;
+            $data['canEdit'] = $canEdit;
+            $data['ownerName'] = $labels["user\0" . $c->getOwnerUid()];
+            $out[] = $data;
+        }
+        return $out;
+    }
+
     private function notFound(): JSONResponse {
         return new JSONResponse(['error' => 'not_found'], Http::STATUS_NOT_FOUND);
     }
@@ -200,15 +264,15 @@ class ApiController extends Controller {
         $allReadable = $this->collections->findReadable($uid, $memberIds);
 
         if ($since === 0) {
-            foreach ($allReadable as $c) {
-                $collections[] = $this->collectionToArray($c);
-            }
+            $collections = $this->collectionsToArray($allReadable);
         } else {
+            $changed = [];
             foreach ($allReadable as $c) {
                 if ((int)$c->getUpdatedAt() > $since) {
-                    $collections[] = $this->collectionToArray($c);
+                    $changed[] = $c;
                 }
             }
+            $collections = $this->collectionsToArray($changed);
             foreach ($this->collections->findDeletedSince($uid, $memberIds, $since) as $dc) {
                 $deletedCollections[] = (int)$dc->getId();
             }
@@ -843,10 +907,7 @@ class ApiController extends Controller {
         }
         $memberIds = $this->members->findCollectionIdsForPrincipals($this->principals());
         
-        $collections = [];
-        foreach ($this->collections->findDeletedReadable($uid, $memberIds) as $c) {
-            $collections[] = $this->collectionToArray($c);
-        }
+        $collections = $this->collectionsToArray($this->collections->findDeletedReadable($uid, $memberIds));
 
         $pages = [];
         $readableIds = array_map(function($c) { return (int)$c->getId(); }, $this->collections->findReadable($uid, $memberIds));
