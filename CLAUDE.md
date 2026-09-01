@@ -12,7 +12,8 @@
 |---|---|
 | **App id** | `nextlibrary` (namespace: `OCA\NextLibrary`) |
 | **Görünen ad** | Knowledge Cards — TR: *Bilgi Kartları* |
-| **Sürüm** | 1.7.0 (4 Ağu 2026) |
+| **Sürüm** | 1.9.2 (14 Ağu 2026) |
+| **Canlı durum** | Sunucuya (172.16.10.185) **1.9.2 deploy edildi** (14 Ağu 2026, kullanıcı; #1 N+1 + #14 i18n). GitHub'da `v1.9.2` release'i + imzalı paket yayında, kod 1 Eyl 2026'da commit'lendi ve tag doğru commit'e taşındı. 🔴 **App Store'da hâlâ 1.0.3** — tek kalan adım (bkz. Bilinen Sorunlar #12). |
 | **Geliştirici** | Mehmet Safi Ceylan (SafiCeylan / memoc) |
 | **Repo** | `github.com/SafiCeylan/Nextlibrary` |
 | **Proje yolu** | `C:\Users\memoc\OneDrive\Desktop\agents\nextcloud-app\nextlibrary` |
@@ -37,7 +38,7 @@ dosyalar olduğu gibi sunucuya kopyalanır.
 ```
 Tarayıcı
   └─ templates/main.php     → statik iskelet (#kesif-app), tüm metinler $l->t() ile
-       └─ js/app.js         → TÜM istemci mantığı (~1950 satır, tek IIFE)
+       └─ js/app.js         → TÜM istemci mantığı (~2640 satır, tek IIFE)
             │  fetch(API_BASE + ...)
             ▼
   lib/Controller/ApiController.php   → tek REST controller (yetki + doğrulama + JSON)
@@ -60,7 +61,7 @@ tamamı string id varsayar, sayıya çevirme.
 nextlibrary/
 ├── appinfo/
 │   ├── info.xml              # Store metadata, sürüm, bağımlılıklar, navigasyon.
-│   └── routes.php            # 18 rota. Tek controller: api# + page#.
+│   └── routes.php            # 22 rota (21 × api# + 1 × page#).
 ├── lib/
 │   ├── AppInfo/Application.php      # Boş bootstrap (DI otomatik).
 │   ├── Controller/
@@ -78,7 +79,7 @@ nextlibrary/
 │   └── Migration/                   # 4 adım — aşağıdaki şema geçmişine bak.
 ├── js/app.js                 # ⭐ İstemcinin tamamı. Tek IIFE, boot() içinde.
 ├── js/admin.js               # Ayar sayfası (editör seçici). app.js'ten BAĞIMSIZ.
-├── css/style.css             # Tamamı #kesif-app altında kapsanmış (37 KB).
+├── css/style.css             # Tamamı #kesif-app altında kapsanmış (51 KB).
 ├── css/admin.css             # Yalnızca ayar sayfası — style.css oraya ULAŞMAZ.
 ├── templates/main.php        # Statik iskelet + i18n.
 ├── templates/admin.php       # Ayar formu iskeleti (#nextlibrary-admin).
@@ -298,21 +299,31 @@ modalını açar (`force: true` ile ikinci deneme).
 
 Tek IIFE → `boot()`. Kabaca bölümler (satır numaraları yaklaşık):
 
+Dosya `/* -------- Başlık -------- */` yorumlarıyla bölünmüş — aşağıdaki tablo bayatlarsa
+`grep -n "^/\* -\{6,\}" js/app.js` güncelini verir. (1.9.1 itibarıyla 2635 satır.)
+
 | Satır | Bölüm |
 |-------|-------|
-| 1–130 | `LS` (localStorage `kx_*`), `el()`, `api()`, `apiErr()`, `seed()`, kullanıcı tespiti |
-| 132–176 | Kart ağacı yardımcıları: `childrenOf`, `dfsPages`, `pathOf`, `subtreeCounts` |
-| 178–295 | `mapColl` / `applyState` / `applySyncState` / `loadState` |
-| 296–385 | İyimser kilitleme, çakışma modalı, kayıt kuyruğu |
-| 387–460 | Tema, okundu, `sanitize()`, video gömme |
-| 461–675 | Editör medyası: görsel/video yükleme, küçültme, NC dosya seçici, drag-drop |
-| 677–920 | Ağaç render, çöp kutusu |
-| 924–1260 | Yönlendirme (`openPage`/`openCollection`/`goBack`), viewer, kapak ekranları |
-| 1261–1425 | Zengin metin araç çubuğu (`execCmd`, satır-içi sınıflar, hizalama, renk) |
-| 1427–1520 | Sağ panel (bulunduğun klasör), kart ekleme |
-| 1562–1740 | Yeni koleksiyon modalı (ağaç kurucu) |
-| 1744–1860 | Üye seçici, emoji/simge seçici |
-| 1862–1948 | Tema, kalıcı görünüm durumu, başlatma, `syncTick` |
+| 1–26 | `ROOT`, `LS` (localStorage `kx_*`), `el()`, sabitler |
+| 27–104 | `api()` / `apiErr()`, boş kuruluma örnek içerik (`seed`) |
+| 105–149 | Kullanıcı kimliği (`detectUser`), rol/yetki (`scopeViewToUser`) |
+| 150–195 | Kart ağacı: `childrenOf`, `dfsPages`, `pathOf`, `subtreeCounts` |
+| 196–404 | `mapColl` / `applyState` / `applySyncState` / `loadState` + iyimser kilitleme, çakışma modalı, kayıt kuyruğu |
+| 405–467 | Tema, okundu takibi, `sanitize()` + URL doğrulama |
+| 468–501 | Video gömme, görsel yükleme/küçültme |
+| **502–536** | **Görsel yuvaları** (`IMG_SLOTS`, `slotOf`, `slotAlt`) — 1.9.0 |
+| **537–655** | **Kırpma / konumlandırma ekranı** (`openCropDialog` → `cropOutput`) — 1.9.0 |
+| 656–816 | NC dosya seçici (`/f/<fileid>` bağlantısı) |
+| 817–1063 | Bağlam menüsü (⋯), sol ağaç, çöp kutusu |
+| 1064–1395 | Okuma/editör görünümü, yönlendirme, ana ekran, önceki/sonraki |
+| 1396–1558 | Editör motoru (`execCmd`, satır-içi sınıflar, hizalama, renk) |
+| **1559–1987** | **Kart şablonları** (`CARD_TEMPLATES`, kategoriler, önizleme, ray sekmeleri) — 1.7.2/1.8.0 |
+| 1988–2117 | Sağ panel (bulunduğun klasör), "buradan devam et", sayfa/koleksiyon işlemleri |
+| 2118–2353 | Yeni koleksiyon modalı (ağaç kurucu) + üye seçici |
+| 2354–2471 | Emoji/simge, arama, tema anahtarı, mobil menü, rol önizleme |
+| 2472–2511 | Başlatma (`boot`) |
+| 2512–2597 | Kırpma ekranı etkileşimleri (statik markup, bir kez bağlanır) |
+| 2598–2635 | `syncTick` — delta senkronu |
 
 ### Bilinmesi gerekenler
 
@@ -333,6 +344,36 @@ Tek IIFE → `boot()`. Kabaca bölümler (satır numaraları yaklaşık):
 - **`t()`/`n()` fallback'i var** — `dev.html`'de NC global'leri yok, çağrı boot'u öldürürdü.
 - **Tarih/saat `LOCALE`** = `OC.getLanguage()`, sabit locale değil.
 
+### Görsel yuvaları ve kırpma (1.9.0)
+
+- Yer tutucunun **sınıfı yuvayı belirler** (`IMG_SLOTS`): `kx-img-avatar` → 400×400 **yuvarlak**,
+  `kx-img-sm` → 800×500 (mockup ızgarası), diğer hepsi → 1400×788 (banner/serbest).
+- Yer tutucu `<img>` ile değiştirilirken **yuvanın sınıfı görsele taşınır**
+  (`img.className = pendingFigCls || slotOf(ph).cls`). Taşınmazsa yuvarlak profil fotoğrafı
+  kocaman bir kareye döner — 1.9.0'ın düzelttiği hata tam olarak buydu.
+- **Kırpma markup'ta değil PİKSELDE saklanır.** `style=` sanitizer'da silindiği için konum/ölçek
+  bilgisi HTML'de tutulamaz. `cropOutput()` seçilen alanı yuva çözünürlüğünde canvas'a çizip
+  JPEG (0.85) döndürür; yan fayda: yüklenen dosya yalnızca yuva kadar büyük olur.
+- **"Tüm görsel" yalnızca yuvarlak OLMAYAN yuvalarda görünür** (`cropModes` gizlenir) — daire
+  zaten kırpar. Seçilirse oran zorlanmaz; sınıf `pendingFigCls`'te bekletilir (yükleme async).
+- `activePlaceholder` tıklama ile yükleme arasında tutulur (seçim kayboluyor). Kullanıcı bu arada
+  sayfa değiştirip düğüm koptuysa normal imleç akışına (`insertAtSaved`) düşülür.
+- `alt`, yer tutucunun kendi metninden gelir (`slotAlt`); boş `alt=""` ekran okuyucuya hiçbir şey
+  söylemiyordu.
+- `cropCanvas` yoksa (dev.html, eski şablon) sessizce eski akışa (`downscaleImage`) düşer.
+
+### Kart şablonları (1.7.2 → 1.8.0)
+
+- `CARD_TEMPLATES` (8 şablon) + `CARD_CATEGORIES` (9 filtre çipi). Sağ rayda iki sekme;
+  seçili sekme **`railTab`'da, state'ten AYRI** tutulur — yetki sunucudan sonradan geldiği için
+  panel yanlış sekmeye atlıyordu.
+- **Şablon HTML'i sanitizer'dan geçmek ZORUNDA:** `style=` ALLOW listesinde yok, `<button>` DROP
+  listesinde. Görsellik sınıfla verilir, tıklanabilir şey `<span>` + delege dinleyicidir
+  (bkz. Bilinen Sorunlar #10).
+- Önizleme (mini çekmece + tam ekran modal) gerçek bir sayfa **değil** → yer tutucu dinleyicisi
+  `#kx-body` ile kapsanmalı, yoksa önizlemedeki yer tutucu dosya seçici açar.
+- Yazma yetkisi olmayan hesapta sekme de yer tutucu da gizlenir.
+
 ---
 
 ## 🌍 Yerelleştirme
@@ -343,6 +384,11 @@ Kaynak dil **İngilizce** (kodda birebir metin). Türkçe `l10n/tr.js` + `l10n/t
 1. Kodda `t('nextlibrary', 'English text')` (JS) veya `$l->t('English text')` (PHP).
 2. Aynı İngilizce anahtarı **hem** `l10n/tr.js` **hem** `l10n/tr.json` içine ekle.
 3. Çoğul için `n('nextlibrary', 'one %n', '%n items', count)`.
+
+> ⚠️ **Kart şablonları bu kuralın DIŞINDA kaldı** (1.8.0 sunucudan taşınırken): `CARD_TEMPLATES`
+> içindeki `title`/`desc`/`badge`, `CARD_CATEGORIES` etiketleri ve 8 şablonun gövde HTML'i
+> **sabit Türkçe** — `t()` çağrısı yok. İngilizce arayüzde şablon paneli Türkçe görünür.
+> (bkz. Bilinen Sorunlar #14.)
 
 `info.xml`'de `<navigation><name>` için `lang` özniteliği **kullanılamaz** (XSD reddediyor)
 — navigasyon adı l10n üzerinden çevrilir.
@@ -411,11 +457,19 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 **Store beklentisi:** arşivde tek üst klasör ve adı app id ile aynı (`nextlibrary/`).
 
 **Sürüm çıkarken kontrol listesi:**
+0. ⚠️ **ÖNCE commit'le, SONRA paketle.** `release.ps1` çalışma ağacından paketler; commit'lemeden
+   çalıştırırsan yayınlanan paket git'te olmayan kod taşır ve tag bir önceki commit'e düşer
+   (14 Ağu 2026'da tam olarak bu oldu — bkz. Bilinen Sorunlar #13b).
 1. `CHANGELOG.md`'ye bölüm ekle (Keep a Changelog + SemVer).
 2. Şema değiştiyse yeni migration — **var olanı düzenleme**, kurulu sunucularda tekrar çalışmaz.
 3. `info.xml` `<dependencies>` hâlâ doğru mu (NC/PHP aralığı).
 4. `release.ps1` → "Verified OK" görmeden yayınlama.
-5. Git'e commit + tag.
+5. Git'e commit + **tag** (`v1.7.2` ve `v1.9.0` bu adım atlandığı için hiç oluşmadı).
+6. GitHub release aç ve `tar.gz`'yi ekle — **mağaza dosya değil indirme LİNKİ ister**, link
+   oraya bakar. ⚠️ Mağazada canlı olan sürümün GitHub release'i **SİLİNMEMELİ**, indirme
+   linki kırılır.
+7. Mağazaya yükle: link + `.sig` içeriği (base64). "Nightly" kutusu stabil sürümde **boş**.
+   Mağaza durumunu API'ye curl atarak doğrulama — 429 riski, bkz. Bilinen Sorunlar #12.
 
 ---
 
@@ -423,11 +477,13 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 
 3 Ağu 2026'da bir tur temizlik yapıldı; aşağıdakiler **kalanlar**.
 
-1. **`state()` ucu N+1 sorgu üretiyor.** `collectionToArray()` koleksiyon başına ayrı
-   `findByCollection` + `findByCollection(members)` + üye sayısı kadar `IUserManager::get`
-   çağırıyor. Çöp kutusundaki aynı sorun düzeltildi (`findDeletedByCollections`), ama
-   `state()` sıcak yol ve düzeltmesi daha büyük: sayfa/üye toplu çekilip PHP tarafında
-   gruplanmalı, principal adları da tek turda çözülmeli.
+1. **✅ ÇÖZÜLDÜ (14 Ağu 2026): `state()` ucu N+1 sorgu üretiyordu.** Yeni toplu yol:
+   `PageMapper::findByCollections` + `MemberMapper::findByCollections` (ikisi de tek `IN`
+   sorgusu) ve `ApiController::collectionsToArray()` — sayfa/üye PHP'de koleksiyona göre
+   gruplanıyor, principal adları benzersizleştirilip her biri BİR kez çözülüyor (üye+sahip).
+   `state()` ve `trash()` artık bunu kullanıyor; tek-koleksiyon uçları eski
+   `collectionToArray`'de kaldı (orada N+1 yok). Sayfa sırası `collection_id, sort, id`
+   ile korunuyor. ⚠️ Sunucuda ölç: çok koleksiyonlu hesapta `state()` süresi düşmeli.
 2. **Test kapsamı dar.** `tests/run.php` yalnızca NC'ye bağımlı olmayanı test eder
    (sanitizer + parite + `PermissionService`'in saf kısmı). Controller/Mapper testleri
    gerçek NC geliştirme kurulumu ister; yazılmadı. **JS tarafı hiç test edilmiyor** —
@@ -474,6 +530,13 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
    sunucuda yapılan iş hep ESKİ app.js üzerine yazılıyor, olduğu gibi alınırsa iç içe
    kartlar / bölümler / `openPages` geri gider. Doğru yol: sunucudaki sürümü en yakın
    release ile diff'leyip YALNIZCA yeni işi güncel tabana taşımak.
+10. **Şablon HTML'i sanitizer'dan geçmek ZORUNDA.** Şablon gövdeleri sayfa içeriği olarak
+   kaydediliyor, yani `HtmlSanitizer`'dan geçiyor: `style=` ALLOW listesinde YOK (satır içi
+   renk/hizalama siliniyor) ve `BUTTON` DROP listesinde (içeriğiyle birlikte yok oluyor).
+   Sonuç sinsi: kart yazılırken doğru görünüyor, KAYDEDİLİNCE bozuluyor. Görsellik hep
+   sınıfla verilmeli, tıklanabilir şey `<span>` + delege dinleyici olmalı. Yeni şablon
+   eklerken etiket/sınıf kaybını ölç (şablonları JSON'a çıkarıp `HtmlSanitizer::clean()`
+   öncesi/sonrası etiket ve sınıf sayımlarını karşılaştıran kısa bir betik yeter).
 11. **Şablon içeriğinde GERÇEK kişisel veri olmaz.** Şablonlar herkese açık uygulamayla
    dağıtılıyor; içine yazılan bir ad/e-posta/telefon her kurulumda herkese görünür.
    1.9.0'a kadar profil ve toplantı şablonlarında gerçek bir ad, e-posta, telefon ve şehir
@@ -482,13 +545,44 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
    alan adıdır), `+90 5XX XXX XX XX`, "Şehir, Ülke", "Katılımcı 1". Yeni şablon eklerken
    `grep -niE "safi|ceylan|@(gmail|hotmail|outlook)|\+90 5[0-9]{2} "` ile kontrol et.
    ⚠️ `appinfo/info.xml`'deki yazar/depo bilgisi bunun DIŞINDA — orası uygulamanın künyesi.
-10. **Şablon HTML'i sanitizer'dan geçmek ZORUNDA.** Şablon gövdeleri sayfa içeriği olarak
-   kaydediliyor, yani `HtmlSanitizer`'dan geçiyor: `style=` ALLOW listesinde YOK (satır içi
-   renk/hizalama siliniyor) ve `BUTTON` DROP listesinde (içeriğiyle birlikte yok oluyor).
-   Sonuç sinsi: kart yazılırken doğru görünüyor, KAYDEDİLİNCE bozuluyor. Görsellik hep
-   sınıfla verilmeli, tıklanabilir şey `<span>` + delege dinleyici olmalı. Yeni şablon
-   eklerken etiket/sınıf kaybını ölç (şablonları JSON'a çıkarıp `HtmlSanitizer::clean()`
-   öncesi/sonrası etiket ve sınıf sayımlarını karşılaştıran kısa bir betik yeter).
+12. **App Store'daki sürüm ÇOK ESKİ.** Son doğrulanan yayın **1.0.3** (17 Tem 2026); 1.0.4'ten
+   1.9.1'e kadar hiçbir şey mağazaya gitmedi. Sunucuya deploy bunu **düzeltmez** — mentör ve
+   dışarıdaki kullanıcılar mağazadan kuruyor, yani onlarda iç içe kart, şablon, editör yetkisi
+   ve medya toplayıcısı **yok**. ⚠️ Durumu `apps.nextcloud.com`'a istek atarak doğrulama:
+   17 Tem'de arka arkaya curl yüzünden IP bazlı **429** yenildi ve kullanıcının tarayıcısı da
+   kilitlendi. Otorite app sayfasıdır, API değil — kullanıcının ekranından bak.
+   Ayrıca açık kalmış bir izin sorusu var: uygulama staj kapsamında yazıldı ama mağazaya
+   **kişisel GitHub hesabından** çıkıyor (sertifika da o hesaba bağlı) — yetkiliye sorulacaktı,
+   cevap gelmedi.
+13. **Sürüm numarası ↔ kod eşleşmesi — iki ayrı olay, ikisi de aynı sebepten.**
+   (a) `nextlibrary-release-1.8.1.tar.gz` ile `1.9.1.tar.gz` `CHANGELOG.md` ve `info.xml`
+   dışında **birebir aynı** (13 Ağu'da açılıp diff'lendi); 1.8.1 ölü bir pakettir — repo,
+   `v1.9.1` tag'i, GitHub release'i ve sunucu **1.9.1** diyor, CHANGELOG'da 1.8.1 bölümü yok.
+   Mağazaya **asla** yüklenmemeli.
+   (b) ✅ **ÇÖZÜLDÜ (1 Eyl 2026):** Uzaktaki `v1.9.2` tag'i `f832476`'yı gösteriyordu — o commit
+   **1.9.1 kodu**, N+1 ve i18n düzeltmeleri onda yoktu. 14 Ağu'da paket üretilip GitHub'a
+   yayınlanmış ama kod commit'lenmemiş, tag de bir önceki commit'e atılmıştı. Kod commit'lendi
+   (`7f364f6`, `a9bcf67`, `5d0ff6e`) ve tag `5d0ff6e`'ye force-update edildi.
+   > **Ders (her iki olayda da aynı):** paketi üretmek, kodu commit'lemek ve tag atmak
+   > ayrı adımlar ve **sırası kayarsa tag yalan söyler.** `release.ps1` çalıştırmadan ÖNCE
+   > commit'le. Şüphede kalırsan tag'e güvenme, paketi aç ve içine bak:
+   > `tar -xzf nextlibrary-release-X.tar.gz && grep -c <yeni-fonksiyon-adı> .../js/app.js`
+   > — bu yöntem 1 Eyl'de paketin aslında DOĞRU olduğunu, yanlış olanın tag olduğunu gösterdi.
+
+   **Eksik sanılan tag'ler yanlış alarmdı:** `v1.7.2` ve `v1.9.0` gerçekten yok ama iş kayıp
+   değil — geçmiş sıkıştırılmış: `fc0adde` (v1.8.0) hem 1.7.2 hem 1.8.0'ı, `f832476` (v1.9.1)
+   hem 1.9.0 hem 1.9.1'i içeriyor. Geriye dönük tag atma; sonraki işi de içeren bir commit'i
+   işaretlemiş olursun.
+14. **✅ ÇÖZÜLDÜ (14 Ağu 2026): Kart şablonları i18n dışındaydı.** Panel metinleri
+   (`CARD_CATEGORIES` etiketleri + `CARD_TEMPLATES`'in `title`/`desc`/`badge`) artık `t()`
+   ile çevriliyor; 26 İngilizce anahtar `l10n/tr.js` + `tr.json`'a eklendi (kaynak dil
+   İngilizce). **Gövde HTML'i** için farklı bir yol seçildi: `t()` string-eşlemesi zengin
+   HTML'de kırılgan — kod şablonunun JSON gövdesi `{..}` içerir ve `t()`'nin `{yer tutucu}`
+   ikamesine takılır, tek boşluk farkı çeviriyi sessizce düşürür. Bu yüzden gövdeler
+   `tmplBody(en, tr)` ile **dile göre seçiliyor** (İngilizce kaynak kodda, Türkçe ikinci
+   argümanda). ⚠️ Bilinçli takas: yeni bir dil eklenirse gövdeler İngilizceye düşer
+   (panel yine tam çevrilir). **Sınıf adları iki dilde de birebir aynı** — sadece görünen
+   metin değişti. `badge: 'Dev / API'` iki dilde aynı olduğu için literal bırakıldı.
 
 ---
 
@@ -510,16 +604,19 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 | 1.7.0 | 4 Ağu | **Editör yetkisi**: yönetici, Yönetim → Bilgi Kartları'ndan hesap/grup atar; editör uygulama içinde admin kadar yetkili. Listeyi yalnızca gerçek NC admin değiştirir. |
 | 1.7.1 | 4 Ağu | Ayarlar kenar çubuğundaki simge beyaz olduğu için görünmüyordu → `img/app-dark.svg`. |
 | 1.7.2 | 11 Ağu | **Kart Şablonları** (sağ rayda sekme, 5 hazır iskelet). Sunucuda yaşayan sürüm repoya taşındı + yetki/CSS/l10n düzeltmeleri. Aynı gün sunucudaki karışık kurulum (1.0.6 + 1.7.x) temizlendi. |
-| 1.9.1 | 11 Ağu | Şablonlardaki **gerçek kişisel bilgiler** (ad, e-posta, telefon, şehir) nötr yer tutuculara çevrildi — yayınlanan uygulamada herkese görünüyordu. |
-| 1.9.0 | 11 Ağu | **Görsel konumlandırma ekranı** (sürükle/yakınlaştır, daire maskesi) + yuva biçiminin görsele taşınması (yuvarlak profil artık kare çıkmıyor) + yuvaya göre çerçeve. |
 | 1.8.0 | 11 Ağu | **8 şablon + kategori filtresi + canlı önizleme** (mini çekmece & tam ekran modal), çalışan Kopyala. Yine sunucuda geliştirilmişti, yine eski taban üzerineydi → doğru tabana taşındı. Şablon HTML'i `style=`/`<button>` kullanmıyor (sanitizer siliyordu). |
+| 1.9.0 | 11 Ağu | **Görsel konumlandırma ekranı** (sürükle/yakınlaştır, daire maskesi) + yuva biçiminin görsele taşınması (yuvarlak profil artık kare çıkmıyor) + yuvaya göre çerçeve. |
+| **1.9.1** | 11 Ağu | Şablonlardaki **gerçek kişisel bilgiler** (ad, e-posta, telefon, şehir) nötr yer tutuculara çevrildi — yayınlanan uygulamada herkese görünüyordu. **Sunucuda kurulu olan sürüm bu.** |
+| **1.9.2** | 14 Ağu | **Bakım:** `state()`/`trash()` N+1'siz toplu sorguya geçti; kart şablonu paneli i18n'lendi (26 anahtar, gövdeler `tmplBody(en,tr)`). Paket 14 Ağu'da yayınlandı, **kod 1 Eyl'de commit'lendi** (bkz. Bilinen Sorunlar #13b). |
+| ~~1.8.1~~ | 11 Ağu | ⚠️ Ayrı bir sürüm DEĞİL: 1.9.1 ile **aynı kodun ikinci paketi** (yalnızca `info.xml` + `CHANGELOG` farklı). CHANGELOG'da karşılığı, git'te tag'i yok. bkz. Bilinen Sorunlar #13. |
 
 ---
 
 ## 💡 Claude ile Çalışma Notları
 
-**Her oturum başında:** bu dosyayı oku, `git status` çek (repo 1.0.4'te takılı — durumu
-karıştırma), `CHANGELOG.md`'nin en üstüne bak.
+**Her oturum başında:** bu dosyayı oku, `git status` çek, `CHANGELOG.md`'nin en üstüne bak.
+Sunucudaki sürümü **notlardan varsayma, ölç**:
+`ssh -i ~/.ssh/nextcloud_server.pem root@172.16.10.185 'sudo -u apache php /var/www/html/nextcloud/occ config:app:get nextlibrary installed_version'`
 
 **Kod değiştirirken:**
 - Mevcut dosyayı önce oku; değişikliği minimal tut.
@@ -619,6 +716,46 @@ içindeki yer tutucular yükleme tetikliyordu → dinleyici `#kx-body` ile kapsa
 gerçekten çalışır hale getirildi (delege + pano API'si, güvensiz bağlamda seçim yedeği).
 60 test yeşil.*
 
-*Son güncelleme: 3 Ağustos 2026 — v1.5.0 kodu üzerinden oluşturuldu; aynı gün bir tur
-sorun giderme yapıldı (medya çöp toplayıcısı, rol düğmesinin kaldırılması, çöp kutusu
-sorgusu, kimlik fallback'i, `tests/run.php`, deponun 1.0.4'ten güncellenmesi).*
+*11 Ağustos 2026 (üçüncü tur) — v1.9.0 + v1.9.1: şablon yer tutucusuna konan fotoğraf
+yuvanın biçimini kaybediyordu (yuvarlak profil kocaman bir kare çıkıyordu) → yuva biçimi
+görsele taşındı ve **kırpma/konumlandırma ekranı** eklendi (sürükle, yakınlaştır, daire
+maskesi, yuvarlak olmayan yuvalarda "Tüm görsel"). Kırpma **piksele** işleniyor, markup'a
+değil — `style=` sanitizer'da siliniyor. 1.9.1 ise şablonlardaki gerçek ad/e-posta/telefon/
+şehir bilgisini nötr yer tutuculara çevirdi (yayınlanan uygulamada herkese görünüyordu).*
+
+*13 Ağustos 2026 — **durum tespiti + bu dosyanın güncellenmesi.** Kod değişmedi; ölçülenler:
+sunucuda (172.16.10.185) `installed_version` = **1.9.1**, `app:list` → enabled; repo temiz ve
+`origin/main` ile eşit; `tests/run.php` → **60 test yeşil**; `node --check` app.js/admin.js
+temiz. Bu dosyada güncellenenler: künye 1.7.0 → 1.9.1, app.js satır haritası gerçek bölüm
+yorumlarına göre yeniden yazıldı (~1950 → 2635 satır), **görsel yuvaları + kırpma** ve **kart
+şablonları** bölümleri eklendi, sürüm tablosu kronolojik sıraya alındı, rota sayısı 18 → 22,
+CSS 37 → 51 KB. Yeni bulgular Bilinen Sorunlar'a girdi: **#12** mağazadaki sürüm hâlâ 1.0.3
+(dışarıdaki herkes 1.0.x kullanıyor) + cevapsız izin sorusu, **#13** `1.8.1` ve `1.9.1`
+tarball'ları aynı kod (açılıp diff'lendi) → mağazaya yükleme öncesi biri seçilmeli, **#14**
+kart şablonlarının metinleri `t()` dışında kaldı (İngilizce arayüzde Türkçe görünür).*
+
+*14 Ağustos 2026 — **iki bakım işi.** (1) **`state()` N+1 düzeltildi** (Bilinen Sorun #1):
+`PageMapper::findByCollections` + `MemberMapper::findByCollections` toplu sorguları ve
+`ApiController::collectionsToArray()` yardımcısı eklendi; principal adları benzersizleştirilip
+tek turda çözülüyor. `state()` ve `trash()` toplu yola geçti; tek-koleksiyon uçları eski
+`collectionToArray`'de kaldı. (2) **Kart şablonları i18n'lendi** (Bilinen Sorun #14): panel
+metinleri (kategori + title/desc/badge) `t()`'ye alındı, 26 anahtar `tr.js`/`tr.json`'a
+yazıldı; gövde HTML'i `tmplBody(en, tr)` ile dile göre seçiliyor (t()'nin `{..}`/boşluk
+kırılganlığı yüzünden), sınıf adları korundu. `node --check` app.js/tr.js + JSON.parse
+tr.json temiz; PHP lokalde yok → `tests/run.php` sunucuda koşturulmalı. **Sürüm bump
+YAPILMADI** — #13 (1.8.1/1.9.1 karışıklığı) çözülmeden mağaza sürümü artırmak riskli;
+bir sonraki release'de bumplanacak.*
+
+*1 Eylül 2026 — **yayın borcu kapatıldı, kod yazılmadı.** 14 Ağu'dan kalan 8 dosya (N+1 + i18n)
+üç commit hâlinde git'e girdi ve push edildi; CHANGELOG'a 1.9.2 bölümü yazıldı. Ölçülenler:
+`tests/run.php` **60 test yeşil**, `node --check` app.js/admin.js/tr.js temiz, yayınlanmış
+`nextlibrary-release-1.9.2.tar.gz` GitHub'daki asset ile **sha256 birebir aynı** ve imza
+**Verified OK** (sertifika 2036'ya geçerli). Ayrıca 8 kart şablonunun **16 gövdesi** (EN+TR)
+gerçek `HtmlSanitizer::clean()`'den geçirilip etiket/sınıf sayımları karşılaştırıldı →
+**16/16 kayıpsız**, EN ve TR sayımları eşit (Bilinen Sorunlar #10 tuzağına düşülmemiş).
+Bulunan ve düzeltilen kusur: uzaktaki `v1.9.2` tag'i 1.9.1 kodunu gösteriyordu → doğru commit'e
+taşındı (#13b). **Kalan tek iş: App Store'a yükleme** — paket ve imza hazır, link
+`releases/download/v1.9.2/nextlibrary-release-1.9.2.tar.gz`.*
+
+*Son güncelleme: 1 Eylül 2026 — 1.9.2 git'e girdi, tag düzeltildi, paket doğrulandı.
+Sıradaki: App Store yüklemesi (#12).*
