@@ -12,7 +12,7 @@
 |---|---|
 | **App id** | `nextlibrary` (namespace: `OCA\NextLibrary`) |
 | **Görünen ad** | Knowledge Cards — TR: *Bilgi Kartları* |
-| **Sürüm** | 1.10.0 (1 Eyl 2026) |
+| **Sürüm** | 1.11.0 (2 Eyl 2026) |
 | **Canlı durum** | Sunucuya (172.16.10.185) **1.9.2 deploy edildi** (14 Ağu 2026, kullanıcı; #1 N+1 + #14 i18n). GitHub'da `v1.9.2` release'i + imzalı paket yayında, kod 1 Eyl 2026'da commit'lendi ve tag doğru commit'e taşındı. 🔴 **App Store'da hâlâ 1.0.3** — tek kalan adım (bkz. Bilinen Sorunlar #12). |
 | **Geliştirici** | Mehmet Safi Ceylan (SafiCeylan / memoc) |
 | **Repo** | `github.com/SafiCeylan/Nextlibrary` |
@@ -181,9 +181,9 @@ Silen kimse yoktu → `lib/BackgroundJob/CleanupMediaJob.php` (günde bir, `info
 
 `purgeCollection` klasörü zaten komple siler; `purgePage` medyaya dokunmaz — onu bu iş toplar.
 
-## 🔗 Derin Bağlantı + NC Birleşik Arama (1.10.0)
+## 🔗 Derin Bağlantı + NC Birleşik Arama (1.11.0)
 
-**Önce bilinmesi gereken:** 1.10.0'a kadar uygulamada derin bağlantı YOKTU. Açık kart
+**Önce bilinmesi gereken:** 1.11.0'a kadar uygulamada derin bağlantı YOKTU. Açık kart
 yalnızca `localStorage`'da tutuluyordu; bir karta bağlantı verip paylaşmak mümkün değildi
 ve bu yüzden **arama sonucu döndürülemiyordu** (tıklanacak adres yok). Arama sağlayıcısının
 ön koşulu buydu.
@@ -219,7 +219,7 @@ aksine, bkz. Bilinen Sorunlar #5).
 - Simge **`app-dark.svg`** (siyah): arama açılır listesi açık zeminli. `app.svg` beyazdır
   ve orada kaybolur — 1.7.0'da ayarlar kenar çubuğunda yaşanan hatanın aynısı.
 
-## 📊 Okuma Raporu (1.10.0)
+## 📊 Okuma Raporu (1.11.0)
 
 `GET /api/collections/{id}/report` — **yazar yetkisi** (`canEdit`). Kimin ne okuduğu
 kişisel veri; koleksiyonu okuyabilen herkese açılmaz.
@@ -359,7 +359,7 @@ modalını açar (`force: true` ile ikinci deneme).
 Tek IIFE → `boot()`. Kabaca bölümler (satır numaraları yaklaşık):
 
 Dosya `/* -------- Başlık -------- */` yorumlarıyla bölünmüş — aşağıdaki tablo bayatlarsa
-`grep -n "^/\* -\{6,\}" js/app.js` güncelini verir. (1.10.0 itibarıyla 2989 satır.)
+`grep -n "^/\* -\{6,\}" js/app.js` güncelini verir. (1.11.0 itibarıyla 2989 satır.)
 
 | Satır | Bölüm |
 |-------|-------|
@@ -386,7 +386,7 @@ Dosya `/* -------- Başlık -------- */` yorumlarıyla bölünmüş — aşağı
 | 2222–2257 | Sağ panel: BULUNDUĞUN KLASÖR |
 | 2258–2275 | Sayfa altı "Buradan devam et" |
 | 2276–2352 | Sayfa/koleksiyon işlemleri (bağlam menüsü) |
-| **2353–2414** | **Okuma raporu** — 1.10.0 |
+| **2353–2414** | **Okuma raporu** — 1.11.0 |
 | 2415–2650 | Yeni koleksiyon + üye ekle |
 | 2651–2711 | Emoji |
 | 2712–2732 | Arama |
@@ -394,7 +394,7 @@ Dosya `/* -------- Başlık -------- */` yorumlarıyla bölünmüş — aşağı
 | 2744–2748 | Mobil menü |
 | 2749–2759 | Rol önizleme |
 | 2760–2765 | Yardımcı |
-| **2766–2806** | **Derin bağlantı (#card= / #coll=)** — 1.10.0 |
+| **2766–2806** | **Derin bağlantı (#card= / #coll=)** — 1.11.0 |
 | 2807–2846 | Başlat |
 | 2847–2951 | Kırpma ekranı etkileşimleri (statik markup → bir kez bağlanır) |
 | 2952–2990 | Delta senkronu: periyodik yoklama |
@@ -643,6 +643,13 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
    > `tar -xzf nextlibrary-release-X.tar.gz && grep -c <yeni-fonksiyon-adı> .../js/app.js`
    > — bu yöntem 1 Eyl'de paketin aslında DOĞRU olduğunu, yanlış olanın tag olduğunu gösterdi.
 
+   (c) **1.10.0 numarası yakıldı (2 Eyl 2026).** Üç özellik 1.10.0 olarak paketlenip
+   imzalandı, `v1.10.0` tag'i atıldı — sonra kullanıcı App Store'da 1.10.0'ın **zaten
+   dolu** olduğunu bildirdi. Aynı kod 1.11.0'a çekildi.
+   > **Ders:** mağazadaki sürüm, repodaki/sunucudaki sürümden BAĞIMSIZ ilerleyebiliyor
+   > ve buradan görülemiyor (#12: API'ye curl atma, 429 riski). **Paketlemeden ÖNCE
+   > mağaza sayfasına bak** — sürüm numarası mağazada bir kez yandığında geri alınamaz.
+
    **Eksik sanılan tag'ler yanlış alarmdı:** `v1.7.2` ve `v1.9.0` gerçekten yok ama iş kayıp
    değil — geçmiş sıkıştırılmış: `fc0adde` (v1.8.0) hem 1.7.2 hem 1.8.0'ı, `f832476` (v1.9.1)
    hem 1.9.0 hem 1.9.1'i içeriyor. Geriye dönük tag atma; sonraki işi de içeren bir commit'i
@@ -680,7 +687,8 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 | 1.7.2 | 11 Ağu | **Kart Şablonları** (sağ rayda sekme, 5 hazır iskelet). Sunucuda yaşayan sürüm repoya taşındı + yetki/CSS/l10n düzeltmeleri. Aynı gün sunucudaki karışık kurulum (1.0.6 + 1.7.x) temizlendi. |
 | 1.8.0 | 11 Ağu | **8 şablon + kategori filtresi + canlı önizleme** (mini çekmece & tam ekran modal), çalışan Kopyala. Yine sunucuda geliştirilmişti, yine eski taban üzerineydi → doğru tabana taşındı. Şablon HTML'i `style=`/`<button>` kullanmıyor (sanitizer siliyordu). |
 | 1.9.0 | 11 Ağu | **Görsel konumlandırma ekranı** (sürükle/yakınlaştır, daire maskesi) + yuva biçiminin görsele taşınması (yuvarlak profil artık kare çıkmıyor) + yuvaya göre çerçeve. |
-| **1.10.0** | 1 Eyl | **NC birleşik araması** (`lib/Search/`) + **derin bağlantı** (`#card=`, ön koşuluydu) + **editörde tablo** (sanitizer izin veriyordu, araç çubuğu eksikti) + **okuma raporu** (veri 1.0.0'dan beri vardı, gösterilmiyordu). 69 test. |
+| ~~1.10.0~~ | — | ⚠️ **ATLANDI.** Paketlendi ve imzalandı ama GitHub release'i açılmadı; kullanıcı App Store'da 1.10.0'ın zaten dolu olduğunu bildirdi (2 Eyl). Aynı kod 1.11.0 olarak çıktı. Mağaza sürüm düşürmeye izin vermediği için numara yakıldı. |
+| **1.11.0** | 2 Eyl | **NC birleşik araması** (`lib/Search/`) + **derin bağlantı** (`#card=`, ön koşuluydu) + **editörde tablo** (sanitizer izin veriyordu, araç çubuğu eksikti) + **okuma raporu** (veri 1.0.0'dan beri vardı, gösterilmiyordu). 69 test. |
 | **1.9.1** | 11 Ağu | Şablonlardaki **gerçek kişisel bilgiler** (ad, e-posta, telefon, şehir) nötr yer tutuculara çevrildi — yayınlanan uygulamada herkese görünüyordu. **Sunucuda kurulu olan sürüm bu.** |
 | **1.9.2** | 14 Ağu | **Bakım:** `state()`/`trash()` N+1'siz toplu sorguya geçti; kart şablonu paneli i18n'lendi (26 anahtar, gövdeler `tmplBody(en,tr)`). Paket 14 Ağu'da yayınlandı, **kod 1 Eyl'de commit'lendi** (bkz. Bilinen Sorunlar #13b). |
 | ~~1.8.1~~ | 11 Ağu | ⚠️ Ayrı bir sürüm DEĞİL: 1.9.1 ile **aynı kodun ikinci paketi** (yalnızca `info.xml` + `CHANGELOG` farklı). CHANGELOG'da karşılığı, git'te tag'i yok. bkz. Bilinen Sorunlar #13. |
@@ -726,7 +734,7 @@ Grubu editör yap, üyesiyle gir                      (grup üzerinden de yetki)
 Editör hesabıyla koleksiyon SİL                     ("admin gibi tam yetki" kararı)
 Silinmiş bir hesabı listeye yazmayı dene            (kaydedince elenmeli)
 
-── 1.10.0 arama / bağlantı / tablo / rapor ──
+── 1.11.0 arama / bağlantı / tablo / rapor ──
 NC üst arama kutusuna kart adı yaz               (sonuç çıkmalı, altında koleksiyon adı + özet)
 Sonuca tıkla                                     (o kart açılmalı, uygulama açıksa yeniden yüklemeden)
 Özel koleksiyona ÜYE OLMAYAN hesapla ara         (o kartlar SONUÇTA ÇIKMAMALI)
@@ -849,7 +857,7 @@ Bulunan ve düzeltilen kusur: uzaktaki `v1.9.2` tag'i 1.9.1 kodunu gösteriyordu
 taşındı (#13b). **Kalan tek iş: App Store'a yükleme** — paket ve imza hazır, link
 `releases/download/v1.9.2/nextlibrary-release-1.9.2.tar.gz`.*
 
-*1 Eylül 2026 (ikinci tur) — **v1.10.0: üç özellik.**
+*1 Eylül 2026 (ikinci tur) — **v1.11.0: üç özellik.**
 (1) **NC birleşik araması** (`lib/Search/CardSearchProvider.php` + `PageMapper::search`).
 Yolda çıkan ön koşul: uygulamada **derin bağlantı hiç yoktu** — açık kart yalnızca
 localStorage'daydı, yani arama sonucunun gösterebileceği bir adres bulunmuyordu. Önce
@@ -876,5 +884,5 @@ bildirim (`Kaydedildi`, `Bir ad gir`, `En az bir sayfa eklemelisiniz`, `Sayfa si
 `Koleksiyon silindi`), `🔒 Salt okunur` rozeti, ağaçtaki `title="Eylemler"` ve
 `ins('<blockquote>ℹ️ Bilgi notu…</blockquote>')`. #14 ile aynı sınıf hata, başka yerde.*
 
-*Son güncelleme: 1 Eylül 2026 — v1.10.0 (arama + derin bağlantı + tablo + okuma raporu).
+*Son güncelleme: 1 Eylül 2026 — v1.11.0 (arama + derin bağlantı + tablo + okuma raporu).
 Sıradaki: App Store yüklemesi — mağazada hâlâ 1.0.3 (#12).*

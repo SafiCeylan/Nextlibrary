@@ -4,7 +4,7 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.10.0] - 2026-09-01
+## [1.11.0] - 2026-09-02
 
 ### Added
 - **Cards now show up in Nextcloud's search bar.** The search inside the app only ever

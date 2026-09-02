@@ -38,7 +38,7 @@ tek bakışta görünür.
 - **Okuma raporu** — bir koleksiyonu kimin okuduğunu, kimin hiç başlamadığını görün.
 - **Karanlık mod** ve sayfalarda tam metin arama.
     ]]></description>
-    <version>1.10.0</version>
+    <version>1.11.0</version>
     <licence>agpl</licence>
     <author mail="saficeylan89@gmail.com">Mehmet Safi Ceylan</author>
     <namespace>NextLibrary</namespace>
