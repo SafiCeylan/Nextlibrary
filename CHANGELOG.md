@@ -4,6 +4,33 @@ All notable changes to NextLibrary (Knowledge Cards) are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.10.0] - 2026-09-01
+
+### Added
+- **Cards now show up in Nextcloud's search bar.** The search inside the app only ever
+  looked at what the browser had already loaded, so finding a card meant opening the app
+  first and knowing roughly where to look. Typing into Nextcloud's own search now returns
+  matching cards from any collection you are allowed to read, with the collection name and
+  a snippet of the text, from anywhere in Nextcloud. Private collections stay private:
+  results are limited to what you can already see, and being an editor does not change
+  that — an editor who is not a member of a private collection will not find its cards.
+- **Every card has an address you can share.** Opening a card now puts it in the browser's
+  address bar, so a link to a specific card can be pasted into a chat or an email and it
+  opens on that card. This is also what makes search results able to point somewhere.
+  Following a link to a card you are not allowed to see, or one that has been deleted,
+  quietly opens the app as usual rather than confirming that the card exists.
+- **A table button in the editor.** Templates have used tables since 1.7.2 and the server
+  has always allowed them, so tables could be read but never written — the toolbar was the
+  only missing piece. Pick a size and the table is inserted with a header row, ready to
+  type into.
+- **A reading report for each collection.** The app has recorded who read what since 1.0.0
+  but only ever showed you your own progress. The collection's ⋯ menu now has a report:
+  who has read how much, when they last read something, and — for private collections —
+  who has not started at all. Members of a group the collection is shared with are included
+  in that list. For public collections there is no fixed audience, so the report shows
+  readers only rather than inventing a list of people who "should" have read it.
+  The report is available to administrators and editors only; who reads what is personal.
+
 ## [1.9.2] - 2026-09-01
 
 ### Fixed

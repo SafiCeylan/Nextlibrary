@@ -12,7 +12,7 @@
 |---|---|
 | **App id** | `nextlibrary` (namespace: `OCA\NextLibrary`) |
 | **Görünen ad** | Knowledge Cards — TR: *Bilgi Kartları* |
-| **Sürüm** | 1.9.2 (14 Ağu 2026) |
+| **Sürüm** | 1.10.0 (1 Eyl 2026) |
 | **Canlı durum** | Sunucuya (172.16.10.185) **1.9.2 deploy edildi** (14 Ağu 2026, kullanıcı; #1 N+1 + #14 i18n). GitHub'da `v1.9.2` release'i + imzalı paket yayında, kod 1 Eyl 2026'da commit'lendi ve tag doğru commit'e taşındı. 🔴 **App Store'da hâlâ 1.0.3** — tek kalan adım (bkz. Bilinen Sorunlar #12). |
 | **Geliştirici** | Mehmet Safi Ceylan (SafiCeylan / memoc) |
 | **Repo** | `github.com/SafiCeylan/Nextlibrary` |
@@ -61,7 +61,7 @@ tamamı string id varsayar, sayıya çevirme.
 nextlibrary/
 ├── appinfo/
 │   ├── info.xml              # Store metadata, sürüm, bağımlılıklar, navigasyon.
-│   └── routes.php            # 22 rota (21 × api# + 1 × page#).
+│   └── routes.php            # 23 rota (22 × api# + 1 × page#).
 ├── lib/
 │   ├── AppInfo/Application.php      # Boş bootstrap (DI otomatik).
 │   ├── Controller/
@@ -72,6 +72,7 @@ nextlibrary/
 │   ├── Settings/                    # Yönetim → Bilgi Kartları (editör listesi).
 │   │   ├── AdminSection.php         # Kenar çubuğu bölümü (simge + ad).
 │   │   └── AdminSettings.php        # Formu döndürür; admin.php + admin.js/css yükler.
+│   ├── Search/CardSearchProvider.php # NC birleşik araması. Okunabilir koleksiyonlarla sınırlı.
 │   ├── Service/PermissionService.php # ⭐ Yazma yetkisinin TEK karar noktası.
 │   ├── Service/HtmlSanitizer.php    # ⚠️ js/app.js sanitize() ile PARİTE ŞART.
 │   ├── BackgroundJob/
@@ -152,6 +153,7 @@ gerçek yönetici (uçta `#[NoAdminRequired]` yok).
 | POST | `/collections/{id}/pages` | **yazar** | `parentId` opsiyonel. |
 | PUT/DELETE | `/pages/{id}` | **yazar** | PUT'ta iyimser kilitleme (aşağıda). |
 | POST/DELETE | `/pages/{id}/read` | **her oturum** | Okundu işareti kullanıcıya özel. |
+| GET | `/collections/{id}/report` | **yazar** | Okuma raporu. Kimin ne okuduğu kişisel veri → okuyucuya kapalı. |
 | GET | `/trash` | okuyucu | |
 | POST | `/collections/{id}/restore`, `/pages/{id}/restore` | **yazar** | |
 | DELETE | `/collections/{id}/purge`, `/pages/{id}/purge` | **yazar** | Kalıcı. |
@@ -178,6 +180,63 @@ Silen kimse yoktu → `lib/BackgroundJob/CleanupMediaJob.php` (günde bir, `info
    **24 saatten eski** dosyalar silinir (yüklenip henüz kaydedilmemiş dosya korunur).
 
 `purgeCollection` klasörü zaten komple siler; `purgePage` medyaya dokunmaz — onu bu iş toplar.
+
+## 🔗 Derin Bağlantı + NC Birleşik Arama (1.10.0)
+
+**Önce bilinmesi gereken:** 1.10.0'a kadar uygulamada derin bağlantı YOKTU. Açık kart
+yalnızca `localStorage`'da tutuluyordu; bir karta bağlantı verip paylaşmak mümkün değildi
+ve bu yüzden **arama sonucu döndürülemiyordu** (tıklanacak adres yok). Arama sağlayıcısının
+ön koşulu buydu.
+
+**Biçim:** `#card=<pageId>` / `#coll=<collId>` (js/app.js: `syncHash`, `readHash`,
+`applyHashTarget`).
+
+| Karar | Neden |
+|-------|-------|
+| Query değil **hash** | Sunucuya istek atmaz, yeni rota gerektirmez, NC'nin kendi yönlendirmesine dokunmaz. |
+| `pushState` değil **`replaceState`** | Ağaçta gezerken kart açmak çok sık; pushState olsaydı tarayıcının geri düğmesi onlarca ara adımda takılırdı. |
+| Hash, localStorage'ı **EZER** | Biri sana bağlantı yolladıysa açılması gereken senin son baktığın kart değil, bağlantıdaki karttır. |
+| Hedef bulunamazsa **sessizce** normal açılış | "Bulunamadı" demek, yetkisi olmayana kartın VAR olduğunu söylemek olurdu. |
+
+`hashchange` de dinleniyor: uygulama açıkken gelen bir bağlantı sayfayı yeniden yüklemez.
+Kendi yazdığımız hash de bu olayı tetiklediği için hedef zaten açıksa hiçbir şey yapılmaz —
+yoksa her gezinme kendini bir kez daha çizerdi.
+
+### `lib/Search/CardSearchProvider.php`
+
+`Application::register()` içinde `registerSearchProvider` ile kaydedilir — **`info.xml`'e
+bir şey eklenmez**, yani sürüm artışına bağlı DEĞİL (arka plan işleri ve ayar sayfasının
+aksine, bkz. Bilinen Sorunlar #5).
+
+- **Yetki:** arama, `state()` ile aynı şekilde kurulan okunabilir koleksiyon kümesiyle
+  sınırlı (public + sahip + üyelik). ⚠️ **Editörlük okuma yetkisi vermez** — editör de
+  üyesi olmadığı özel koleksiyonun kartlarını aramada göremez. Uygulama içindeki kuralla
+  aynı.
+- `PageMapper::search()` yetki KONTROL ETMEZ; okunabilir id kümesini çağıran verir.
+  Küme boşsa sorgu hiç açılmaz (yoksa `IN ()` üretilirdi).
+- Terim `escapeLikeParameter` ile kaçırılır: kullanıcı `%` yazarsa tüm kartlar dönerdi.
+- Bölümler (`kind='folder'`) elenir — okunacak gövdeleri yok.
+- Simge **`app-dark.svg`** (siyah): arama açılır listesi açık zeminli. `app.svg` beyazdır
+  ve orada kaybolur — 1.7.0'da ayarlar kenar çubuğunda yaşanan hatanın aynısı.
+
+## 📊 Okuma Raporu (1.10.0)
+
+`GET /api/collections/{id}/report` — **yazar yetkisi** (`canEdit`). Kimin ne okuduğu
+kişisel veri; koleksiyonu okuyabilen herkese açılmaz.
+
+Veri 1.0.0'dan beri `nextlibrary_reads` tablosunda duruyordu ama yalnızca kullanıcının
+KENDİ ilerlemesi gösteriliyordu. Yeni olan tek şey onu raporlamak.
+
+**İki ayrı liste, çünkü iki ayrı soru var:**
+- `readers` — en az bir kart okumuş herkes. **Her zaman** cevaplanabilir.
+- `pending` — okuması beklenip hiç okumamış olanlar. **Yalnızca hedef kitle bilinirse**
+  (`audienceKnown`). Özel koleksiyonda kitle üye listesidir ve **gruplar açılır**
+  (`expectedAudience`, `MAX_AUDIENCE=500`'de kesilir). Herkese açık koleksiyonda kitle
+  "sunucudaki herkes"tir → `audienceKnown=false` ve istemci o bölümü hiç göstermez.
+  Uydurma bir "okumayanlar" listesi üretmek yanıltıcı olurdu.
+
+⚠️ Bölümler (`kind='folder'`) sayılmaz: okunacak gövdeleri yok ve okundu işaretlenemiyorlar
+— sayaca girerlerse ilerleme asla %100 olamaz (1.4.3 hatası).
 
 ## 🔐 Yetki Modeli — DİKKAT
 
@@ -300,30 +359,45 @@ modalını açar (`force: true` ile ikinci deneme).
 Tek IIFE → `boot()`. Kabaca bölümler (satır numaraları yaklaşık):
 
 Dosya `/* -------- Başlık -------- */` yorumlarıyla bölünmüş — aşağıdaki tablo bayatlarsa
-`grep -n "^/\* -\{6,\}" js/app.js` güncelini verir. (1.9.1 itibarıyla 2635 satır.)
+`grep -n "^/\* -\{6,\}" js/app.js` güncelini verir. (1.10.0 itibarıyla 2989 satır.)
 
 | Satır | Bölüm |
 |-------|-------|
-| 1–26 | `ROOT`, `LS` (localStorage `kx_*`), `el()`, sabitler |
-| 27–104 | `api()` / `apiErr()`, boş kuruluma örnek içerik (`seed`) |
-| 105–149 | Kullanıcı kimliği (`detectUser`), rol/yetki (`scopeViewToUser`) |
-| 150–195 | Kart ağacı: `childrenOf`, `dfsPages`, `pathOf`, `subtreeCounts` |
-| 196–404 | `mapColl` / `applyState` / `applySyncState` / `loadState` + iyimser kilitleme, çakışma modalı, kayıt kuyruğu |
-| 405–467 | Tema, okundu takibi, `sanitize()` + URL doğrulama |
-| 468–501 | Video gömme, görsel yükleme/küçültme |
-| **502–536** | **Görsel yuvaları** (`IMG_SLOTS`, `slotOf`, `slotAlt`) — 1.9.0 |
-| **537–655** | **Kırpma / konumlandırma ekranı** (`openCropDialog` → `cropOutput`) — 1.9.0 |
-| 656–816 | NC dosya seçici (`/f/<fileid>` bağlantısı) |
-| 817–1063 | Bağlam menüsü (⋯), sol ağaç, çöp kutusu |
-| 1064–1395 | Okuma/editör görünümü, yönlendirme, ana ekran, önceki/sonraki |
-| 1396–1558 | Editör motoru (`execCmd`, satır-içi sınıflar, hizalama, renk) |
-| **1559–1987** | **Kart şablonları** (`CARD_TEMPLATES`, kategoriler, önizleme, ray sekmeleri) — 1.7.2/1.8.0 |
-| 1988–2117 | Sağ panel (bulunduğun klasör), "buradan devam et", sayfa/koleksiyon işlemleri |
-| 2118–2353 | Yeni koleksiyon modalı (ağaç kurucu) + üye seçici |
-| 2354–2471 | Emoji/simge, arama, tema anahtarı, mobil menü, rol önizleme |
-| 2472–2511 | Başlatma (`boot`) |
-| 2512–2597 | Kırpma ekranı etkileşimleri (statik markup, bir kez bağlanır) |
-| 2598–2635 | `syncTick` — delta senkronu |
+| 1–26 | `ROOT`, `LS` (localStorage `kx_*`), `el()`, `t()`/`n()`, sabitler |
+| 27–68 | Sunucu API (F2: kalıcı depolama) |
+| 69–104 | Seed content for an empty instance |
+| 105–139 | Kullanıcı kimliği (gerçek NC kullanıcısı, yoksa dev fallback) |
+| 140–149 | Rol / yetki (yetki sunucuda hesaplanır, coll.canEdit) |
+| 150–195 | Kart ağacı (iç içe kartlar) |
+| 196–404 | Sunucu ↔ model dönüşümü + yükleme |
+| 405–418 | Tema (NC temasıyla senkron, kullanıcı seçimi öncelikli) |
+| 419–433 | Okundu takibi (kullanıcı-bazlı, sunucuda) |
+| 434–467 | Güvenlik: HTML sanitizasyonu + URL doğrulama |
+| 468–501 | Medya: video gömme + görsel yükleme/küçültme |
+| 502–536 | Görsel yuvaları |
+| 537–655 | Kırpma / konumlandırma ekranı |
+| 656–816 | Nextcloud dosyasını bağlantı olarak ekle |
+| 817–832 | Bağlam menüsü (⋯) |
+| 833–1063 | Sol ağaç |
+| 1064–1363 | Orta: okuma / editör |
+| 1364–1380 | Ana ekran (Akademi) |
+| 1381–1581 | Önceki / sonraki ders |
+| 1582–2221 | Hazır Kart Şablonları (8 Farklı Tarz & Canlı Önizleme) |
+| 2222–2257 | Sağ panel: BULUNDUĞUN KLASÖR |
+| 2258–2275 | Sayfa altı "Buradan devam et" |
+| 2276–2352 | Sayfa/koleksiyon işlemleri (bağlam menüsü) |
+| **2353–2414** | **Okuma raporu** — 1.10.0 |
+| 2415–2650 | Yeni koleksiyon + üye ekle |
+| 2651–2711 | Emoji |
+| 2712–2732 | Arama |
+| 2733–2743 | Tema anahtarı (kaydırmalı: sol=açık, sağ=koyu) |
+| 2744–2748 | Mobil menü |
+| 2749–2759 | Rol önizleme |
+| 2760–2765 | Yardımcı |
+| **2766–2806** | **Derin bağlantı (#card= / #coll=)** — 1.10.0 |
+| 2807–2846 | Başlat |
+| 2847–2951 | Kırpma ekranı etkileşimleri (statik markup → bir kez bağlanır) |
+| 2952–2990 | Delta senkronu: periyodik yoklama |
 
 ### Bilinmesi gerekenler
 
@@ -404,7 +478,7 @@ php tests/run.php
 Composer/PHPUnit **yok** — yalnızca `ext-dom`.
 
 > ℹ️ **PHP bu makinede PATH'te değil ama KURULU** (4 Ağu 2026'da doğrulandı):
-> `C:\Users\memoc\OneDrive\Desktop\Projeler\php\php.exe` — `ext-dom` içeriyor, 60 testi
+> `C:\Users\memoc\OneDrive\Desktop\Projeler\php\php.exe` — `ext-dom` içeriyor, 69 testi
 > koşturuyor. Yani `php tests/run.php` yerine tam yolla çağır:
 > `& "C:\Users\memoc\OneDrive\Desktop\Projeler\php\php.exe" tests/run.php`
 >
@@ -606,6 +680,7 @@ SHA-512 imzalar → sertifikayla doğrular → base64 imzayı ekrana basar
 | 1.7.2 | 11 Ağu | **Kart Şablonları** (sağ rayda sekme, 5 hazır iskelet). Sunucuda yaşayan sürüm repoya taşındı + yetki/CSS/l10n düzeltmeleri. Aynı gün sunucudaki karışık kurulum (1.0.6 + 1.7.x) temizlendi. |
 | 1.8.0 | 11 Ağu | **8 şablon + kategori filtresi + canlı önizleme** (mini çekmece & tam ekran modal), çalışan Kopyala. Yine sunucuda geliştirilmişti, yine eski taban üzerineydi → doğru tabana taşındı. Şablon HTML'i `style=`/`<button>` kullanmıyor (sanitizer siliyordu). |
 | 1.9.0 | 11 Ağu | **Görsel konumlandırma ekranı** (sürükle/yakınlaştır, daire maskesi) + yuva biçiminin görsele taşınması (yuvarlak profil artık kare çıkmıyor) + yuvaya göre çerçeve. |
+| **1.10.0** | 1 Eyl | **NC birleşik araması** (`lib/Search/`) + **derin bağlantı** (`#card=`, ön koşuluydu) + **editörde tablo** (sanitizer izin veriyordu, araç çubuğu eksikti) + **okuma raporu** (veri 1.0.0'dan beri vardı, gösterilmiyordu). 69 test. |
 | **1.9.1** | 11 Ağu | Şablonlardaki **gerçek kişisel bilgiler** (ad, e-posta, telefon, şehir) nötr yer tutuculara çevrildi — yayınlanan uygulamada herkese görünüyordu. **Sunucuda kurulu olan sürüm bu.** |
 | **1.9.2** | 14 Ağu | **Bakım:** `state()`/`trash()` N+1'siz toplu sorguya geçti; kart şablonu paneli i18n'lendi (26 anahtar, gövdeler `tmplBody(en,tr)`). Paket 14 Ağu'da yayınlandı, **kod 1 Eyl'de commit'lendi** (bkz. Bilinen Sorunlar #13b). |
 | ~~1.8.1~~ | 11 Ağu | ⚠️ Ayrı bir sürüm DEĞİL: 1.9.1 ile **aynı kodun ikinci paketi** (yalnızca `info.xml` + `CHANGELOG` farklı). CHANGELOG'da karşılığı, git'te tag'i yok. bkz. Bilinen Sorunlar #13. |
@@ -650,6 +725,23 @@ Editörü listeden çıkar → tekrar gir                 (düğmeler tekrar giz
 Grubu editör yap, üyesiyle gir                      (grup üzerinden de yetki)
 Editör hesabıyla koleksiyon SİL                     ("admin gibi tam yetki" kararı)
 Silinmiş bir hesabı listeye yazmayı dene            (kaydedince elenmeli)
+
+── 1.10.0 arama / bağlantı / tablo / rapor ──
+NC üst arama kutusuna kart adı yaz               (sonuç çıkmalı, altında koleksiyon adı + özet)
+Sonuca tıkla                                     (o kart açılmalı, uygulama açıksa yeniden yüklemeden)
+Özel koleksiyona ÜYE OLMAYAN hesapla ara         (o kartlar SONUÇTA ÇIKMAMALI)
+Editör ama üye değil, aynı aramayı yap           (yine çıkmamalı — editörlük okuma vermez)
+Bir kart aç, adres çubuğuna bak                  (#card=<id> görünmeli)
+O adresi kopyala, gizli sekmede aç               (aynı kart açılmalı)
+Silinmiş bir kartın adresini aç                  (sessizce ana ekran; hata mesajı OLMAMALI)
+Ağaçta 10 kart gez, tarayıcı geri düğmesi        (uygulamadan çıkmalı — ara adımlarda takılmamalı)
+Editörde ▦ → 3×3                                 (başlık satırlı tablo, altına yazılabilir boş paragraf)
+Tabloyu doldur → KAYDET → yenile                 (tablo kalmalı; kaybolduysa sanitizer yedi)
+Koleksiyon ⋯ → Okuma raporu                      (okuyanlar + ilerleme çubuğu)
+ÖZEL koleksiyonda rapor                          ("Henüz başlamayanlar" bölümü GÖRÜNMELİ)
+HERKESE AÇIK koleksiyonda rapor                  ("Henüz başlamayanlar" GÖRÜNMEMELİ, açıklama çıkmalı)
+Grupla paylaşılmış özel koleksiyonda rapor       (grup üyeleri de "başlamayanlar"da sayılmalı)
+Yazma yetkisi OLMAYAN hesapla koleksiyon ⋯       (menü hiç açılmamalı → rapor da erişilemez)
 
 ── 1.9.0 görsel konumlandırma ──
 Profil şablonu → yuvarlak yuvaya foto ekle          (YUVARLAK kalmalı, kare çıkarsa sınıf düşmüş)
@@ -757,5 +849,32 @@ Bulunan ve düzeltilen kusur: uzaktaki `v1.9.2` tag'i 1.9.1 kodunu gösteriyordu
 taşındı (#13b). **Kalan tek iş: App Store'a yükleme** — paket ve imza hazır, link
 `releases/download/v1.9.2/nextlibrary-release-1.9.2.tar.gz`.*
 
-*Son güncelleme: 1 Eylül 2026 — 1.9.2 git'e girdi, tag düzeltildi, paket doğrulandı.
-Sıradaki: App Store yüklemesi (#12).*
+*1 Eylül 2026 (ikinci tur) — **v1.10.0: üç özellik.**
+(1) **NC birleşik araması** (`lib/Search/CardSearchProvider.php` + `PageMapper::search`).
+Yolda çıkan ön koşul: uygulamada **derin bağlantı hiç yoktu** — açık kart yalnızca
+localStorage'daydı, yani arama sonucunun gösterebileceği bir adres bulunmuyordu. Önce
+`#card=`/`#coll=` kuruldu (bkz. "Derin Bağlantı" bölümü); yan fayda olarak kart bağlantısı
+artık paylaşılabilir.
+(2) **Editörde tablo** — sanitizer TABLE/THEAD/TBODY/TR/TH/TD'ye baştan beri izin veriyordu
+ve şablonlar tablo kullanıyordu; eksik olan tek şey araç çubuğu düğmesiydi. Yani tablo
+görülebiliyor ama oluşturulamıyordu.
+(3) **Okuma raporu** — veri `nextlibrary_reads`'te 1.0.0'dan beri duruyordu, yalnızca
+kullanıcının kendi ilerlemesi gösteriliyordu.
+
+Ölçülenler: **69 test yeşil** (60 → +9; yeni testler `tableHTML`'in ürettiği HER etiketi
+`js/app.js`'ten okuyup SAFE listesiyle karşılaştırıyor — biri sanitizer'ın atacağı bir
+etiket eklerse kırmızıya döner, #10 tuzağına karşı), `php -l` altı dosya temiz,
+`node --check` temiz, `l10n` **296 anahtar iki dosyada da parite tam** (13 yeni).
+
+⚠️ **Elle doğrulanması gerekenler** (NC olmadan koşturulamaz): arama sonucunun özel
+koleksiyonu sızdırmaması, raporun 403'ü, hash gezinmesi. Senaryolar "Elle test" bölümünde.
+
+⚠️ **Kapatılmayan, bilinen i18n kaçakları** (bu sürümün kapsamı dışında bırakıldı):
+editör araç çubuğunda 9 sabit Türkçe `title` (`Geri al`, `Vurgu rengi`, `Madde listesi`,
+`Hizalama`, `Bilgi notu`, `Paragraf stili`, `Yinele`, `Emoji`, `Video`), 5 sabit Türkçe
+bildirim (`Kaydedildi`, `Bir ad gir`, `En az bir sayfa eklemelisiniz`, `Sayfa silindi`,
+`Koleksiyon silindi`), `🔒 Salt okunur` rozeti, ağaçtaki `title="Eylemler"` ve
+`ins('<blockquote>ℹ️ Bilgi notu…</blockquote>')`. #14 ile aynı sınıf hata, başka yerde.*
+
+*Son güncelleme: 1 Eylül 2026 — v1.10.0 (arama + derin bağlantı + tablo + okuma raporu).
+Sıradaki: App Store yüklemesi — mağazada hâlâ 1.0.3 (#12).*
