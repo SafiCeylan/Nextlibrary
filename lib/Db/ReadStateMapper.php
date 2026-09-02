@@ -46,6 +46,34 @@ class ReadStateMapper extends QBMapper {
         return $out;
     }
 
+    /**
+     * Verilen sayfaların TÜM kullanıcılara ait okundu kayıtları — okuma raporu için.
+     * Tek sorgu: sayfa başına ayrı sorgu koleksiyon büyüdükçe N+1 olurdu.
+     * Entity yerine düz dizi döner; rapor yalnızca üç alanı sayıyor, her satır için
+     * ReadState nesnesi kurmak boşuna maliyet.
+     * @param int[] $pageIds
+     * @return array<int,array{user:string,page:int,at:int}>
+     */
+    public function findByPages(array $pageIds): array {
+        if (empty($pageIds)) {
+            return [];
+        }
+        $qb = $this->db->getQueryBuilder();
+        $qb->select('user_uid', 'page_id', 'read_at')->from($this->getTableName())
+            ->where($qb->expr()->in('page_id', $qb->createNamedParameter($pageIds, IQueryBuilder::PARAM_INT_ARRAY)));
+        $out = [];
+        $result = $qb->executeQuery();
+        while ($row = $result->fetch()) {
+            $out[] = [
+                'user' => (string)$row['user_uid'],
+                'page' => (int)$row['page_id'],
+                'at' => (int)$row['read_at'],
+            ];
+        }
+        $result->closeCursor();
+        return $out;
+    }
+
     public function findOne(string $uid, int $pageId): ?ReadState {
         $qb = $this->db->getQueryBuilder();
         $qb->select('*')->from($this->getTableName())

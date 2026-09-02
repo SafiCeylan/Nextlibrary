@@ -28,6 +28,9 @@ return [
         ['name' => 'api#markRead', 'url' => '/api/pages/{id}/read', 'verb' => 'POST'],
         ['name' => 'api#unmarkRead', 'url' => '/api/pages/{id}/read', 'verb' => 'DELETE'],
 
+        // Okuma raporu — yalnızca yazarlar (admin/editör); kimin ne okuduğu kişisel veri.
+        ['name' => 'api#collectionReport', 'url' => '/api/collections/{id}/report', 'verb' => 'GET'],
+
         // -------- Çöp Kutusu API --------
         ['name' => 'api#trash', 'url' => '/api/trash', 'verb' => 'GET'],
         ['name' => 'api#restoreCollection', 'url' => '/api/collections/{id}/restore', 'verb' => 'POST'],

@@ -124,6 +124,22 @@
     </div>
   </div>
 
+  <!-- Okuma raporu. İçerik sunucudan geliyor (GET /api/collections/{id}/report) ve
+       yalnızca yazma yetkisi olanlara açık — kimin ne okuduğu kişisel veri, o yüzden
+       hem uç hem de bu modalı açan ⋯ menüsü yetkiyle korunuyor. -->
+  <div class="backdrop" id="mdReport">
+    <div class="modal modal-lg">
+      <div class="m-head">
+        <h3 id="mdReportTitle"><?php p($l->t('Reading report')); ?></h3>
+        <button class="m-close" data-close="mdReport">✕</button>
+      </div>
+      <div class="m-body" id="mdReportBody"></div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close="mdReport"><?php p($l->t('Close')); ?></button>
+      </div>
+    </div>
+  </div>
+
   <!-- Görsel kırpma: seçilen fotoğrafın hangi bölümünün görüneceği burada belirlenir.
        Sonuç canvas'ta piksele işlenip öyle yükleniyor — konumu markup'ta saklamak
        mümkün değil, sanitizer `style` özniteliğini siliyor. -->

@@ -1,5 +1,24 @@
 {
     "translations": {
+        "Insert a table": "Tablo ekle",
+        "Column": "Sütun",
+        "Reading report": "Okuma raporu",
+        "This collection has no readable cards yet.": "Bu koleksiyonda henüz okunabilir kart yok.",
+        "Nobody has read anything here yet.": "Burada henüz kimse bir şey okumadı.",
+        "Account": "Hesap",
+        "Progress": "İlerleme",
+        "Last read": "Son okuma",
+        "Not started yet": "Henüz başlamayanlar",
+        "Everyone with access has started reading.": "Erişimi olan herkes okumaya başlamış.",
+        "This collection is public, so there is no fixed list of people expected to read it.": "Bu koleksiyon herkese açık; okuması beklenen sabit bir kişi listesi yok.",
+        "_%n card_::_%n cards_": [
+            "%n kart",
+            "%n kart"
+        ],
+        "_%n reader_::_%n readers_": [
+            "%n okuyucu",
+            "%n okuyucu"
+        ],
         "All": "Tümü",
         "Code / API": "Kod / API",
         "Executive": "Yönetici",

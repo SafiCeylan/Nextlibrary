@@ -1293,7 +1293,8 @@ function renderViewer(){
        <button class="tbtn" data-cmd="link" title="${esc(t('nextlibrary','Insert link'))}">🔗</button>
        <button class="tbtn" data-cmd="unlink" title="${esc(t('nextlibrary','Remove link'))}">🚫</button>
        <button class="tbtn" data-cmd="callout" title="Bilgi notu">ℹ</button>
-       <button class="tbtn" data-cmd="hr" title="${esc(t('nextlibrary','Divider'))}">―</button><span class="tsep"></span>
+       <button class="tbtn" data-cmd="hr" title="${esc(t('nextlibrary','Divider'))}">―</button>
+       <button class="tbtn" data-cmd="table" title="${esc(t('nextlibrary','Insert a table'))}">▦</button><span class="tsep"></span>
        <button class="tbtn" data-cmd="emoji" title="Emoji">🙂</button>
        <button class="tbtn" data-cmd="image" title="${esc(t('nextlibrary','Image'))}">🖼</button>
        <button class="tbtn" data-cmd="video" title="Video">🎬</button>
@@ -1410,6 +1411,27 @@ const KX_HILITES=[['',t('nextlibrary','None'),'transparent'],['kx-hl-yellow',t('
 const KX_ALIGN=[['',t('nextlibrary','Align left'),'⬅'],['kx-al-center',t('nextlibrary','Centre'),'↔'],['kx-al-right',t('nextlibrary','Align right'),'➡'],['kx-al-justify',t('nextlibrary','Justify'),'☰']];
 const BLOCK_SEL='p,h1,h2,h3,h4,li,blockquote,pre,div';
 
+/* ---- Tablo ekleme ----
+   Kart şablonları baştan beri tablo kullanıyordu ve sanitizer TABLE/THEAD/TBODY/TR/TH/TD
+   ile class/colspan/rowspan'a izin veriyor — yani tablo GÖRÜNTÜLENEBİLİYORDU ama kullanıcı
+   kendisi bir tane oluşturamıyordu. Buradaki tek eksik parça araç çubuğu tarafıydı.
+
+   Sınıf VERİLMİYOR: `.doc-content table` zaten belge tabloları için stillenmiş (kenarlık,
+   başlık zemini, okunaklı iç boşluk) ve hem düzenleme hem okuma görünümünde geçerli.
+   Şablonlardaki `kx-table` bilerek kullanılmıyor — o, yoğun şablon kartları için
+   küçültülmüş bir varyant; kullanıcının kendi yazdığı tabloda küçük punto istenmez.
+
+   Satır sayısı GÖVDE satırıdır; başlık satırı ayrıca eklenir (yeni bir tabloda ilk
+   satırın başlık olması beklenen davranış). */
+const KX_TABLE_SIZES=[[2,2],[3,2],[3,3],[4,3],[5,4]];
+function tableHTML(rows,cols){
+  const head='<tr>'+Array.from({length:cols},(_,i)=>'<th>'+esc(t('nextlibrary','Column'))+' '+(i+1)+'</th>').join('')+'</tr>';
+  const body=Array.from({length:rows},()=>'<tr>'+Array.from({length:cols},()=>'<td><br></td>').join('')+'</tr>').join('');
+  // Sondaki boş paragraf kasıtlı: tablo belgenin son öğesiyse imlecin gidebileceği bir
+  // yer kalmıyor ve kullanıcı tablonun altına hiçbir şey yazamıyor.
+  return '<table><thead>'+head+'</thead><tbody>'+body+'</tbody></table><p><br></p>';
+}
+
 /** Seçim editörün içinde mi? */
 function selInBody(){
   const body=el('kx-body'); const s=window.getSelection();
@@ -1494,7 +1516,7 @@ function toolbarClick(e){
   const cmd=b.dataset.cmd;
   const ins=h=>execCmd('insertHTML',h);
   // Menü açan komutlar seçimi kaybettirmemeli → önce sakla, odağı geri alma
-  if(cmd==='image'||cmd==='video'||cmd==='ncfile'||cmd==='block'||cmd==='color'||cmd==='hilite'||cmd==='align'){ saveSel(); }
+  if(cmd==='image'||cmd==='video'||cmd==='ncfile'||cmd==='block'||cmd==='color'||cmd==='hilite'||cmd==='align'||cmd==='table'){ saveSel(); }
   else { el('kx-body').focus(); }
   switch(cmd){
     case 'undo':execCmd('undo');break;
@@ -1516,6 +1538,7 @@ function toolbarClick(e){
     case 'color':openSwatch(b,KX_COLORS,'text',c=>{ restoreSel(); applyInlineClass(c,/^kx-c-/); afterEdit(); });e.stopPropagation();return;
     case 'hilite':openSwatch(b,KX_HILITES,'bg',c=>{ restoreSel(); applyInlineClass(c,/^kx-hl-/); afterEdit(); });e.stopPropagation();return;
     case 'align':openMenu(b,KX_ALIGN.map(([cls,label,icon])=>({icon,label,fn:()=>{ restoreSel(); applyAlign(cls); afterEdit(); }})));e.stopPropagation();return;
+    case 'table':openMenu(b,KX_TABLE_SIZES.map(([r,c])=>({icon:'▦',label:r+' × '+c,fn:()=>{ restoreSel(); ins(tableHTML(r,c)); afterEdit(); }})));e.stopPropagation();return;
     case 'image':openMenu(b,[
       {icon:'💻',label:t('nextlibrary','Upload from this device'),fn:()=>pickImageFile()},
       {icon:'🔗',label:t('nextlibrary','Add by URL'),fn:()=>{const raw=prompt(t('nextlibrary','Image URL:'),'https://');if(raw===null)return;const u=safeUrl(raw);if(u)insertAtSaved(`<img src="${esc(u)}" alt="">`,true);else toast(t('nextlibrary','Invalid image link'));}}
@@ -2321,9 +2344,72 @@ function collActions(c,anchor){
     },{collectionId:c.id,hasIcon:!!c.icon})},
     {icon:'👥',label:t('nextlibrary','Members and visibility'),fn:()=>openManageMembers(c)},
     {icon:c.visibility==='private'?'🌐':'🔒',label:c.visibility==='private'?t('nextlibrary','Make public'):t('nextlibrary','Make private'),fn:()=>{const nv=c.visibility==='private'?'public':'private';c.visibility=nv;api('PUT','/collections/'+c.id,{visibility:nv}).catch(apiErr);renderTree(el('kx-search').value);renderViewer();toast(nv==='private'?t('nextlibrary','Collection is now private'):t('nextlibrary','Collection is now public'));}},
+    {icon:'📊',label:t('nextlibrary','Reading report'),fn:()=>openReadingReport(c)},
     {sep:true},
     {icon:'🗑️',label:t('nextlibrary','Delete'),danger:true,fn:()=>{ if(!confirm(t('nextlibrary','Delete "{name}" and the {count} pages inside it? This cannot be undone.',{name:c.name,count:c.pages.length})))return; api('DELETE','/collections/'+c.id).catch(apiErr); colls=colls.filter(x=>x.id!==c.id); if(curColl===c.id){curColl=null;curPage=null;} renderTree();renderViewer();renderRecs();toast('Koleksiyon silindi'); }}
   ]);
+}
+
+/* -------- Okuma raporu --------
+   Uygulama okundu bilgisini baştan beri tutuyordu ama yalnızca kullanıcının KENDİ
+   ilerlemesini gösteriyordu; "bu koleksiyonu kim okudu" sorusunun cevabı veritabanında
+   duruyor olmasına rağmen hiçbir yerde görünmüyordu.
+
+   Yalnızca yazarlara açık — hem burada (⋯ menüsü zaten `ce` ile korunuyor) hem sunucuda
+   (canEdit). Kimin ne okuduğu kişisel veri, koleksiyonu okuyabilen herkese açılmaz. */
+function openReadingReport(c){
+  el('mdReportTitle').textContent=t('nextlibrary','Reading report')+' · '+c.name;
+  el('mdReportBody').innerHTML='<div class="rail-empty">'+esc(t('nextlibrary','Loading …'))+'</div>';
+  show('mdReport');
+  api('GET','/collections/'+c.id+'/report')
+    .then(renderReadingReport)
+    .catch(e=>{ hide('mdReport'); apiErr(e); });
+}
+function renderReadingReport(r){
+  const body=el('mdReportBody');
+  if(!r.pages){
+    // Bölümler sayılmıyor (okunacak gövdeleri yok) → yalnızca bölümlerden oluşan bir
+    // koleksiyonda okunacak hiçbir şey yoktur; yüzde hesabı 0'a bölmeye giderdi.
+    body.innerHTML='<div class="rail-empty">'+esc(t('nextlibrary','This collection has no readable cards yet.'))+'</div>';
+    return;
+  }
+  const pct=n=>Math.round(n*100/r.pages);
+  let html='<div class="rep-sum">'+esc(n('nextlibrary','%n card','%n cards',r.pages))+
+           ' · '+esc(n('nextlibrary','%n reader','%n readers',r.readers.length))+'</div>';
+
+  if(!r.readers.length){
+    html+='<div class="rail-empty">'+esc(t('nextlibrary','Nobody has read anything here yet.'))+'</div>';
+  }else{
+    html+='<table class="rep-table"><thead><tr>'+
+          '<th>'+esc(t('nextlibrary','Account'))+'</th>'+
+          '<th>'+esc(t('nextlibrary','Progress'))+'</th>'+
+          '<th>'+esc(t('nextlibrary','Last read'))+'</th>'+
+          '</tr></thead><tbody>';
+    r.readers.forEach(u=>{
+      const p=pct(u.read);
+      html+='<tr><td>'+esc(u.label||u.uid)+'</td>'+
+            '<td><span class="rep-bar"><span class="rep-bar-fill" data-pct="'+p+'"></span></span>'+
+            '<span class="rep-num">'+u.read+'/'+r.pages+'</span></td>'+
+            '<td>'+esc(u.lastAt?readFull(u.lastAt):'—')+'</td></tr>';
+    });
+    html+='</tbody></table>';
+  }
+
+  /* "Kim okumadı" yalnızca hedef kitle bilindiğinde gösterilir. Herkese açık bir
+     koleksiyonda kitle sunucudaki herkestir; oradan bir "okumayanlar" listesi üretmek
+     yanıltıcı olurdu, o yüzden sunucu audienceKnown=false döndürüyor. */
+  if(r.audienceKnown){
+    html+='<div class="msec">'+esc(t('nextlibrary','Not started yet'))+'</div>';
+    html+=r.pending.length
+      ? '<div class="mchips">'+r.pending.map(u=>'<span class="mchip">'+esc(u.label||u.uid)+'</span>').join('')+'</div>'
+      : '<div class="rail-empty">'+esc(t('nextlibrary','Everyone with access has started reading.'))+'</div>';
+  }else{
+    html+='<div class="mvis-hint">'+esc(t('nextlibrary','This collection is public, so there is no fixed list of people expected to read it.'))+'</div>';
+  }
+  body.innerHTML=html;
+  // Genişlik style= ile verilemiyor (sanitizer'dan geçmiyor ama aynı kuralı burada da
+  // koruyoruz) → ölçü data-pct'te, uygulaması burada.
+  body.querySelectorAll('.rep-bar-fill').forEach(b=>{ b.style.width=(b.dataset.pct||0)+'%'; });
 }
 
 /* -------- Yeni koleksiyon + üye ekle -------- */
@@ -2675,7 +2761,45 @@ updateRoleBtn();
 function show(id){el(id).classList.add('show');} function hide(id){el(id).classList.remove('show');}
 ROOT.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>hide(b.dataset.close));
 ROOT.querySelectorAll('.backdrop').forEach(bd=>bd.addEventListener('mousedown',e=>{if(e.target===bd)hide(bd.id);}));
-function persistState(){LS.set('curColl',curColl);LS.set('curPage',curPage);LS.set('openColls',[...openColls]);LS.set('openPages',[...openPages]);}
+function persistState(){LS.set('curColl',curColl);LS.set('curPage',curPage);LS.set('openColls',[...openColls]);LS.set('openPages',[...openPages]);syncHash();}
+
+/* -------- Derin bağlantı (#card= / #coll=) --------
+   Açık kart URL'e yazılır, böylece bağlantı paylaşılabilir olur ve Nextcloud'un
+   birleşik araması sonuçlarını buraya yönlendirebilir (lib/Search/CardSearchProvider).
+
+   Neden hash: sunucuya istek atmaz, yeni bir rota gerektirmez ve NC'nin kendi
+   yönlendirmesine dokunmaz.
+   Neden replaceState: kart açmak ağaçta gezinirken çok sık oluyor; pushState olsaydı
+   tarayıcının geri düğmesi onlarca ara adımda takılıp kullanılamaz hale gelirdi. */
+function syncHash(){
+  const want = curPage ? ('#card='+encodeURIComponent(curPage)) : (curColl ? ('#coll='+encodeURIComponent(curColl)) : '');
+  if((location.hash||'') === want) return;
+  // history yoksa/başarısızsa sessiz geç: adres çubuğu görsel bir kolaylık, uygulama
+  // durumunu localStorage taşıyor — burada patlamak gezinmeyi kırardı.
+  try{ history.replaceState(null,'',location.pathname+location.search+want); }catch(_){}
+}
+function readHash(){
+  const m=/^#(card|coll)=(.+)$/.exec(location.hash||'');
+  return m?{kind:m[1],id:decodeURIComponent(m[2])}:null;
+}
+/* URL'deki hedefi aç. Bulunamazsa false döner — bağlantı bayat olabilir (kart silinmiş)
+   ya da kullanıcının o koleksiyonu okuma yetkisi olmayabilir; ikisinde de sessizce
+   normal açılışa düşülür, "bulunamadı" demek yetkisiz kullanıcıya kartın VAR olduğunu
+   söylemek olurdu. */
+function applyHashTarget(){
+  const link=readHash(); if(!link) return false;
+  if(link.kind==='card'){
+    const f=findPage(link.id); if(!f) return false;
+    curColl=f.coll.id; curPage=link.id; editing=false;
+    openColls.clear(); openColls.add(f.coll.id);
+    pathOf(f.coll,f.page).slice(0,-1).forEach(a=>openPages.add(a.id));
+    return true;
+  }
+  if(!getColl(link.id)) return false;
+  curColl=link.id; curPage=null; editing=false;
+  openColls.clear(); openColls.add(link.id);
+  return true;
+}
 let toastT;function toast(t){const e=el('toast');e.textContent=t;e.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>e.classList.remove('show'),2000);}
 
 
@@ -2796,13 +2920,32 @@ loadState(true).then(()=>{
   // Kimlik ancak state ile kesinleşir (OC.getCurrentUser okunamamış olabilir) → hesap
   // değişimi kontrolünü gerçek kimlikle şimdi yap.
   scopeViewToUser();
-  // Tarayıcıda saklı görünüm durumu artık sunucu id'leriyle eşleşmiyorsa ana ekrana düş
-  if(curColl&&!getColl(curColl))curColl=null;
-  if(curPage&&!findPage(curPage))curPage=null;
+  // URL'de bir kart varsa tarayıcıda saklı son görünümü EZER: biri sana bağlantı
+  // yolladıysa açılması gereken şey senin en son baktığın kart değil, bağlantıdaki
+  // kart. Hedef bulunamazsa (silinmiş / yetkin yok) normal açılışa düşülür.
+  if(!applyHashTarget()){
+    // Tarayıcıda saklı görünüm durumu artık sunucu id'leriyle eşleşmiyorsa ana ekrana düş
+    if(curColl&&!getColl(curColl))curColl=null;
+    if(curPage&&!findPage(curPage))curPage=null;
+  }
   if(curColl)openColls.add(curColl);
   // canCreate ancak state geldikten sonra bilinir → yazma yetkisine bağlı düğmeleri şimdi tazele
   updateRoleBtn();
   renderTree(); renderViewer(); renderRecs(); renderTemplates(); updateBackBtnVisibility();
+  syncHash();
+});
+
+/* Uygulama AÇIKKEN başka bir kart bağlantısına tıklanırsa (NC araması, sohbete
+   yapıştırılmış link) sayfa yeniden yüklenmez — yalnızca hash değişir. Kendi
+   yazdığımız hash de bu olayı tetikler, o yüzden hedef zaten açıksa hiçbir şey
+   yapılmaz (aksi halde her gezinme kendini bir kez daha çizerdi). */
+window.addEventListener('hashchange',()=>{
+  const link=readHash();
+  if(!link) return;
+  if(link.kind==='card'&&link.id===curPage) return;
+  if(link.kind==='coll'&&link.id===curColl&&!curPage) return;
+  if(!applyHashTarget()) return;
+  renderTree(el('kx-search').value); renderViewer(); renderRecs(); updateBackBtnVisibility();
 });
 setInterval(updateTreeTimes,60000); // "x dk önce" etiketlerini canlı tut
 

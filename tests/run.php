@@ -134,6 +134,48 @@ has('<s>', $s->clean('<s>x</s>'), 'S korunur');
 has('<blockquote>', $s->clean('<blockquote>x</blockquote>'), 'blockquote korunur');
 has('<pre>', $s->clean('<pre><code>x</code></pre>'), 'pre/code korunur');
 
+section('Araç çubuğu tablosu sanitizer\'dan geçer');
+
+/*
+ * Araç çubuğundaki "Tablo ekle" kart GÖVDESİNE HTML yazar, yani kaydedilirken
+ * HtmlSanitizer'dan geçer. Şablonlarda tam olarak bu tuzağa düşülmüştü (bkz. CLAUDE.md
+ * Bilinen Sorunlar #10): kart yazılırken doğru görünüp KAYDEDİLİNCE bozuluyordu, çünkü
+ * `style=` ALLOW listesinde yok ve `<button>` DROP listesinde.
+ *
+ * Bu yüzden test, tabloyu elle yazılmış bir örnekten değil, js/app.js'teki gerçek
+ * `tableHTML` gövdesinden okuduğu etiketlerden kuruyor: biri üreticiyi değiştirip
+ * sanitizer'ın atacağı bir etiket eklerse burası kırmızıya döner.
+ */
+$jsForTable = @file_get_contents(__DIR__ . '/../js/app.js');
+if ($jsForTable === false) {
+    ok(false, 'js/app.js okunabilir (tablo testi)');
+} elseif (!preg_match('/function tableHTML\(rows,cols\)\{(.*?)\n\}/s', $jsForTable, $tm)) {
+    ok(false, 'tableHTML gövdesi js/app.js içinde bulunur');
+} else {
+    $body = $tm[1];
+    ok(strpos($body, 'style=') === false, 'tableHTML style= kullanmıyor (sanitizer siler)');
+
+    preg_match_all('/<([a-zA-Z][a-zA-Z0-9]*)/', $body, $tagm);
+    $emitted = array_values(array_unique(array_map('strtoupper', $tagm[1])));
+    ok(!empty($emitted), 'tableHTML en az bir etiket üretiyor', implode(',', $emitted));
+
+    $safe = (new ReflectionClass(HtmlSanitizer::class))->getConstants()['SAFE'] ?? [];
+    $missing = [];
+    foreach ($emitted as $tag) {
+        if (!isset($safe[$tag])) {
+            $missing[] = $tag;
+        }
+    }
+    ok(empty($missing), 'tableHTML\'in ürettiği her etiket SAFE listesinde', implode(',', $missing));
+
+    // Ve gerçekten uçtan uca: örnek bir tablo temizlikten kayıpsız çıkmalı.
+    $sample = '<table><thead><tr><th>Column 1</th></tr></thead><tbody><tr><td><br></td></tr></tbody></table><p><br></p>';
+    $cleaned = $s->clean($sample);
+    foreach (['<table>', '<thead>', '<tbody>', '<tr>', '<th>', '<td>'] as $needle) {
+        has($needle, $cleaned, 'tablo temizlikten sonra ' . $needle . ' koruyor');
+    }
+}
+
 // ─────────────── 2) PHP ↔ JS beyaz liste paritesi ───────────────
 
 section('PHP ↔ JS parite (HtmlSanitizer.php ↔ js/app.js)');

@@ -616,3 +616,15 @@
 #kesif-app .doc-content table,#kesif-app .content table{border-collapse:collapse;margin:14px 0;width:100%}
 #kesif-app .doc-content td,#kesif-app .doc-content th,#kesif-app .content td,#kesif-app .content th{border:1px solid var(--line);padding:7px 10px;text-align:left}
 #kesif-app .doc-content th,#kesif-app .content th{background:var(--surface-2);font-weight:700}
+
+/* Okuma raporu (⋯ menüsü → Okuma raporu). Yalnızca yazarlara görünür. */
+#kesif-app .rep-sum{font-size:13px;color:var(--ink-faint);margin-bottom:10px}
+#kesif-app .rep-table{width:100%;border-collapse:collapse;font-size:13px}
+#kesif-app .rep-table th{text-align:left;padding:6px 8px;border-bottom:2px solid var(--line);font-size:11px;color:var(--ink-faint);font-weight:700}
+#kesif-app .rep-table td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+#kesif-app .rep-table tr:last-child td{border-bottom:none}
+/* İlerleme çubuğu ve sayı aynı hücrede: çubuk oranı, sayı kesin değeri verir —
+   yalnızca çubuk olsa "3/12 mi 4/12 mi" ayırt edilemezdi. */
+#kesif-app .rep-bar{display:inline-block;width:120px;height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;vertical-align:middle}
+#kesif-app .rep-bar-fill{display:block;height:100%;background:var(--brand);border-radius:4px}
+#kesif-app .rep-num{margin-left:8px;font-size:12px;color:var(--ink-faint);white-space:nowrap}

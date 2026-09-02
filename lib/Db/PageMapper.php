@@ -61,6 +61,42 @@ class PageMapper extends QBMapper {
         return $this->findEntities($qb);
     }
 
+    /**
+     * Nextcloud'un birleşik aramasından gelen sorgu: başlık VEYA gövdede geçen kartlar.
+     * Çağıran, kullanıcının okuyabildiği koleksiyon id'lerini verir — bu metot yetki
+     * KONTROL ETMEZ, yalnızca verilen kümede arar. Boş küme (okunabilir koleksiyon yok)
+     * sorguyu hiç açmadan boş döner, aksi halde `IN ()` üretilirdi.
+     *
+     * Bölümler (`kind = folder`) dışarıda: okunacak gövdeleri yok, arama sonucunda
+     * boş bir kart gibi görünürlerdi.
+     *
+     * Terim `escapeLikeParameter` ile kaçırılıyor: kullanıcı `%` veya `_` yazarsa bunlar
+     * joker olarak yorumlanıp tüm kartları döndürürdü.
+     *
+     * @param int[] $collectionIds
+     * @return Page[]
+     */
+    public function search(string $term, array $collectionIds, int $limit, int $offset): array {
+        $term = trim($term);
+        if ($term === '' || empty($collectionIds)) {
+            return [];
+        }
+        $like = '%' . $this->db->escapeLikeParameter($term) . '%';
+        $qb = $this->db->getQueryBuilder();
+        $qb->select('*')->from($this->getTableName())
+            ->where($qb->expr()->in('collection_id', $qb->createNamedParameter($collectionIds, IQueryBuilder::PARAM_INT_ARRAY)))
+            ->andWhere($qb->expr()->eq('deleted_at', $qb->createNamedParameter(0, IQueryBuilder::PARAM_INT)))
+            ->andWhere($qb->expr()->neq('kind', $qb->createNamedParameter('folder')))
+            ->andWhere($qb->expr()->orX(
+                $qb->expr()->iLike('title', $qb->createNamedParameter($like)),
+                $qb->expr()->iLike('html', $qb->createNamedParameter($like))
+            ))
+            // En son güncellenen önce: aramada güncel kart eskisinden daha çok aranır.
+            ->orderBy('updated_at', 'DESC')->addOrderBy('id', 'DESC')
+            ->setMaxResults($limit)->setFirstResult($offset);
+        return $this->findEntities($qb);
+    }
+
     /** @return Page[] */
     public function findDeletedPages(int $collectionId): array {
         $qb = $this->db->getQueryBuilder();

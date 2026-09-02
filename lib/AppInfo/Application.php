@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace OCA\NextLibrary\AppInfo;
 
+use OCA\NextLibrary\Search\CardSearchProvider;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
@@ -16,6 +17,9 @@ class Application extends App implements IBootstrap {
     }
 
     public function register(IRegistrationContext $context): void {
+        // Kartları NC'nin üst arama kutusuna bağlar. Servisin geri kalanı DI ile
+        // çözülüyor; kaydedilmesi gereken tek şey sağlayıcının kendisi.
+        $context->registerSearchProvider(CardSearchProvider::class);
     }
 
     public function boot(IBootContext $context): void {

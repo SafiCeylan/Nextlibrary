@@ -1111,6 +1111,138 @@ class ApiController extends Controller {
         return new JSONResponse(['ok' => true]);
     }
 
+    // -------- Okuma raporu --------
+
+    /**
+     * "Kim okumadı" listesinin tavanı. Grupla paylaşılmış bir koleksiyonda grup
+     * binlerce hesap içerebilir; rapor bir sayım aracı, kullanıcı dizini değil.
+     */
+    private const MAX_AUDIENCE = 500;
+
+    /**
+     * Bir koleksiyonu kimin ne kadar okuduğu.
+     *
+     * Yetki: `canEdit` — yani admin veya editör. Kimin ne okuduğu kişisel bir veri;
+     * koleksiyonu okuyabilen herkese açılmaz.
+     *
+     * İki ayrı liste döner, çünkü iki ayrı soru var:
+     *  - `readers`  : en az bir kart okumuş herkes. Bu her zaman cevaplanabilir.
+     *  - `pending`  : okuması BEKLENEN ama hiç okumamış olanlar. Bu yalnızca hedef
+     *                 kitle bilinirse cevaplanabilir → `audienceKnown`.
+     *                 Özel koleksiyonda kitle üye listesidir (gruplar açılır).
+     *                 Herkese açık koleksiyonda kitle "sunucudaki herkes"tir; o listeyi
+     *                 üretmek hem anlamsız hem pahalı olurdu, o yüzden `audienceKnown`
+     *                 false döner ve istemci "kim okumadı" bölümünü hiç göstermez.
+     *
+     * Bölümler (`kind = folder`) sayılmaz: okunacak gövdeleri yok ve "okundu"
+     * işaretlenemiyorlar — sayaca girerlerse ilerleme asla %100 olamaz (1.4.3 hatası).
+     */
+    #[NoAdminRequired]
+    public function collectionReport(int $id): JSONResponse {
+        try {
+            $c = $this->collections->find($id);
+        } catch (DoesNotExistException $e) {
+            return $this->notFound();
+        }
+        if (!$this->canEdit($c)) {
+            return $this->forbidden();
+        }
+
+        $pages = [];
+        foreach ($this->pages->findByCollection($id) as $p) {
+            if ($p->getKind() === 'folder') {
+                continue;
+            }
+            $pages[(int)$p->getId()] = (string)$p->getTitle();
+        }
+        $total = count($pages);
+
+        // Tek sorgu; ardından kullanıcı bazında topla.
+        $byUser = [];
+        foreach ($this->reads->findByPages(array_keys($pages)) as $r) {
+            $u = $r['user'];
+            if (!isset($byUser[$u])) {
+                $byUser[$u] = ['count' => 0, 'last' => 0];
+            }
+            $byUser[$u]['count']++;
+            if ($r['at'] > $byUser[$u]['last']) {
+                $byUser[$u]['last'] = $r['at'];
+            }
+        }
+
+        $readers = [];
+        foreach ($byUser as $u => $agg) {
+            $readers[] = [
+                'uid' => $u,
+                'label' => $this->principalLabel($u, 'user'),
+                'read' => $agg['count'],
+                'total' => $total,
+                'lastAt' => $agg['last'],
+            ];
+        }
+        // Çok okuyandan aza; eşitlikte en son okuyan önce.
+        usort($readers, function (array $a, array $b) {
+            return $b['read'] <=> $a['read'] ?: $b['lastAt'] <=> $a['lastAt'];
+        });
+
+        $audienceKnown = $c->getVisibility() === 'private';
+        $pending = [];
+        if ($audienceKnown) {
+            foreach ($this->expectedAudience($id) as $u) {
+                if (!isset($byUser[$u])) {
+                    $pending[] = ['uid' => $u, 'label' => $this->principalLabel($u, 'user')];
+                }
+            }
+        }
+
+        return new JSONResponse([
+            'collection' => ['id' => (int)$c->getId(), 'name' => (string)$c->getName()],
+            'pages' => $total,
+            'readers' => $readers,
+            'pending' => $pending,
+            'audienceKnown' => $audienceKnown,
+        ]);
+    }
+
+    /**
+     * Özel bir koleksiyonun okuması beklenen kullanıcıları: doğrudan üyeler + üye
+     * grupların içindeki hesaplar (benzersizleştirilmiş), sahip dahil.
+     *
+     * Grup üyeleri açılıyor çünkü "kim okumadı" sorusunun cevabı aksi halde grupla
+     * paylaşılan koleksiyonlarda hep boş çıkardı. Büyük gruplarda listenin sonsuza
+     * gitmemesi için MAX_AUDIENCE'ta kesiliyor — rapor bir sayım aracı, kullanıcı
+     * dizini değil.
+     * @return string[]
+     */
+    private function expectedAudience(int $collectionId): array {
+        try {
+            $c = $this->collections->find($collectionId);
+        } catch (DoesNotExistException $e) {
+            return [];
+        }
+        $out = [$c->getOwnerUid() => true];
+        foreach ($this->members->findByCollection($collectionId) as $m) {
+            if (count($out) >= self::MAX_AUDIENCE) {
+                break;
+            }
+            if ($m->getType() === 'user') {
+                $out[$m->getPrincipal()] = true;
+                continue;
+            }
+            $g = $this->groupManager->get($m->getPrincipal());
+            if ($g === null) {
+                continue;
+            }
+            foreach ($g->getUsers() as $u) {
+                if (count($out) >= self::MAX_AUDIENCE) {
+                    break;
+                }
+                $out[$u->getUID()] = true;
+            }
+        }
+        return array_keys($out);
+    }
+
     // -------- Yönetici ayarı: uygulama geneli editör listesi --------
 
     /**
